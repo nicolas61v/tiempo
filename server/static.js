@@ -64,7 +64,7 @@ export function loadStatic(dir, vars = {}) {
 }
 
 export function serveStatic(req, res, site, pathname) {
-  let asset = site.assets.get(pathname === '/' ? '/index.html' : pathname);
+  let asset = site.assets.get(pathname === '/' ? '/index.html' : pathname) || site.assets.get(`${pathname}.html`); // /admin → admin.html
   if (!asset && !path.extname(pathname)) asset = site.assets.get('/index.html'); // rutas de la app
   if (!asset) return false;
 

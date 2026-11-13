@@ -18,6 +18,8 @@ export const config = {
   initialSeconds: Number(env.INITIAL_SECONDS) || 7 * 86_400,
   // SMMLV Colombia 2026 (Decreto 1469 de 2025). 1 día de vida = este valor / 30.
   minWage: Number(env.MIN_WAGE_MONTHLY) || 1_750_905,
+  // Clave de la página /admin. Sin ella, el panel de administración queda apagado.
+  adminToken: env.ADMIN_TOKEN || '',
   onRailway: Boolean(env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_PROJECT_ID),
   hasVolume: Boolean(env.RAILWAY_VOLUME_MOUNT_PATH || env.DATA_DIR),
   vapid: {

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="dark">
+  <title>Tiempo · Admin</title>
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/admin.css">
+  <script type="module" src="/admin.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Tiempo · Admin</h1>
+      <button id="reload" type="button" hidden>Actualizar</button>
+    </header>
+
+    <form id="login">
+      <input id="key" type="password" placeholder="Clave de administrador" autocomplete="current-password" required>
+      <button type="submit">Entrar</button>
+    </form>
+    <p id="msg" role="status"></p>
+
+    <section id="out" hidden>
+      <div class="cards" id="totals"></div>
+
+      <h2>Teléfonos con varias cuentas</h2>
+      <p class="hint">Mismo identificador anónimo de dispositivo: casi seguro es la misma persona.</p>
+      <div id="devices"></div>
+
+      <h2>Redes con varias cuentas</h2>
+      <p class="hint">Misma red (wifi o datos). Puede ser la misma persona o gente de la misma casa u oficina.</p>
+      <div id="nets"></div>
+
+      <h2>Relojes</h2>
+      <div class="scroll"><table id="users"></table></div>
+    </section>
+  </main>
+</body>
+</html>

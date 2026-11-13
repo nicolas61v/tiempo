@@ -34,6 +34,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname === '/healthz') return; // siempre red
+  if (url.pathname.startsWith('/admin')) return; // el panel de admin nunca se cachea
 
   if (req.mode === 'navigate') {
     // HTML y JS siempre de la MISMA versión: el shell sale de esta caché. Cuando hay deploy,

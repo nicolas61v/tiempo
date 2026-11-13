@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { openStore, alertBand } from '../server/store.js';
+import { createHash } from 'node:crypto';
+import { openStore, alertBand, MIGRATIONS } from '../server/store.js';
 import { buildContent } from '../server/judge.js';
 import { lifeSeconds } from '../public/economy.js';
 import { split } from '../public/clock.js';
@@ -220,13 +221,15 @@ test('un deploy (reabrir la base con el código nuevo) deja cada reloj exactamen
 
 test('si hay migración pendiente, primero se guarda una copia completa de la base', () => {
   const dir = tmpDir();
-  const a = openStore({ dir, minWage: WAGE });
-  const { token } = a.createUser();
-  const expires = a.state(a.auth(token).id).expiresAt;
-  a.close();
-  // Simula una base de la versión anterior (antes de existir "nickname")
+  // La base exactamente como estaba en la versión anterior: todas las migraciones menos la última.
   const raw = new DatabaseSync(path.join(dir, 'tiempo.db'));
-  raw.exec('ALTER TABLE users DROP COLUMN nickname; PRAGMA user_version = 3;');
+  for (const sql of MIGRATIONS.slice(0, -1)) raw.exec(sql);
+  raw.exec(`PRAGMA user_version = ${MIGRATIONS.length - 1}`);
+  const token = 'tk_prueba_de_migracion_0000000';
+  const expires = Date.UTC(2026, 10, 20);
+  raw
+    .prepare('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at) VALUES (?, ?, 1, 1, 1, ?)')
+    .run('u1', createHash('sha256').update(token).digest('base64url'), expires);
   raw.close();
 
   const b = openStore({ dir, minWage: WAGE });
@@ -252,6 +255,33 @@ test('nombre o apodo: opcional, máximo 32 caracteres, limpio y editable', () =>
   assert.equal(store.setNickname(id, '').state.nickname, '');
   assert.equal(store.setNickname(id, 42).state.nickname, '');
   assert.equal(store.createUser().state.nickname, '');
+});
+
+/* ───────── anti-abuso: cuentas repetidas y vidas aprovechadas ───────── */
+
+test('anti-abuso: agrupa por teléfono y por red sin guardar la IP, y separa reinicios de muertes', () => {
+  let t = Date.UTC(2026, 10, 12, 12);
+  const store = openStore({ minWage: WAGE, now: () => t });
+  const a = store.createUser({ nickname: 'Ana', deviceId: 'dev-1111-aaaa', ip: '181.50.10.20' });
+  store.createUser({ nickname: 'Ana2', deviceId: 'dev-1111-aaaa', ip: '181.50.10.20' }); // mismo teléfono
+  store.createUser({ nickname: 'Beto', deviceId: 'dev-2222-bbbb', ip: '::ffff:181.50.10.20' }); // otra persona, misma red
+  store.createUser({ nickname: 'Caro', deviceId: '<script>', ip: '' }); // identificador inválido → se ignora
+
+  const id = store.auth(a.token).id;
+  store.rebirth(id, true); // reinicio teniendo tiempo
+  t += 8 * DAY;
+  store.rebirth(id); // se le acabó y renació
+
+  const s = store.adminStats(t);
+  assert.equal(s.totales.relojes, 4);
+  assert.equal(s.totales.dispositivos, 2);
+  assert.deepEqual(s.dispositivosConVariasCuentas.map((g) => [g.cuentas, g.nombres.sort().join(',')]), [[2, 'Ana,Ana2']]);
+  assert.deepEqual(s.redesConVariasCuentas.map((g) => g.cuentas), [3]); // ::ffff:IPv4 = misma red
+  const ana = s.relojes.find((r) => r.nombre === 'Ana');
+  assert.deepEqual([ana.vida, ana.reinicios, ana.muertes], [3, 1, 1]);
+  assert.deepEqual([s.totales.reinicios, s.totales.muertes], [1, 1]);
+  assert.ok(!JSON.stringify(s).includes('181.50'), 'la IP nunca aparece');
+  assert.ok(!JSON.stringify(s).includes('dev-1111-aaaa'), 'el identificador completo tampoco');
 });
 
 /* ───────── alertas ───────── */

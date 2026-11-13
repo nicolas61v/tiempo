@@ -1,5 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
 import { openStore, AppError } from './store.js';
 import { createPush } from './push.js';
@@ -21,6 +22,7 @@ if (store.backupFile) log.info(`copia de seguridad antes de migrar: ${store.back
 const push = createPush(store, { ...config.vapid, log });
 const judge = createJudge({ log });
 if (!judge.enabled) log.warn('⚠ Guardián apagado: define ANTHROPIC_API_KEY para activar "Mi día".');
+if (!config.adminToken) log.warn('⚠ Panel /admin apagado: define ADMIN_TOKEN para activarlo.');
 
 // Mantenimiento: devuelve códigos no reclamados y cierra días abandonados.
 setInterval(() => {
@@ -85,7 +87,14 @@ function readJson(req, limit = 8192) {
 }
 
 const bearer = (req) => /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1];
-const clientIp = (req) => (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
+const clientIp = (req) =>
+  String(req.headers['x-real-ip'] || '').trim() ||
+  (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+  req.socket.remoteAddress;
+
+/** Compara la clave de admin en tiempo constante (no se puede adivinar letra por letra midiendo tiempos). */
+const sha = (s) => createHash('sha256').update(String(s)).digest();
+const isAdmin = (req) => Boolean(config.adminToken) && timingSafeEqual(sha(bearer(req) || ''), sha(config.adminToken));
 
 function limiter(max, windowMs) {
   const hits = new Map();
@@ -99,6 +108,7 @@ function limiter(max, windowMs) {
 const limitSessions = limiter(20, 3_600_000);
 const limitApi = limiter(240, 60_000);
 const limitClaims = limiter(10, 60_000); // contra adivinar códigos
+const limitAdmin = limiter(20, 60_000); // contra adivinar la clave de admin
 
 function fmtSeconds(s) {
   const d = Math.floor(s / 86_400), h = Math.floor((s % 86_400) / 3600), m = Math.floor((s % 3600) / 60);
@@ -128,7 +138,14 @@ async function api(req, res, p) {
   if (m === 'POST' && p === '/api/session') {
     if (!limitSessions(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un rato');
     const b = await readJson(req);
-    return send(res, 201, store.createUser({ nickname: b.nickname }));
+    return send(res, 201, store.createUser({ nickname: b.nickname, deviceId: b.deviceId, ip: clientIp(req) }));
+  }
+
+  if (m === 'GET' && p === '/api/admin/stats') {
+    if (!config.adminToken) throw new AppError(404, 'not_found', 'Ruta desconocida');
+    if (!limitAdmin(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un minuto');
+    if (!isAdmin(req)) throw new AppError(401, 'admin', 'Clave de administrador incorrecta');
+    return send(res, 200, store.adminStats());
   }
   if (m === 'GET' && p === '/api/push/key') return send(res, 200, { publicKey: push.publicKey });
 

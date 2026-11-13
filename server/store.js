@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CATEGORIES, lifeSeconds } from '../public/economy.js';
@@ -52,7 +52,7 @@ const PRAGMAS = `
 `;
 
 // Cada entrada se aplica una sola vez (PRAGMA user_version). Nunca editar una ya publicada: agregar otra.
-const MIGRATIONS = [
+export const MIGRATIONS = [
   // v1 · base
   `
   CREATE TABLE IF NOT EXISTS users (
@@ -139,7 +139,27 @@ const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN nickname TEXT NOT NULL DEFAULT '';
   `,
+  // v5 · anti-abuso: dispositivo anónimo + huella cifrada de la red (nunca la IP) y motivo de cada renacer
+  `
+  ALTER TABLE users ADD COLUMN device_id TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN ip_hash TEXT NOT NULL DEFAULT '';
+  ALTER TABLE lives ADD COLUMN reason TEXT NOT NULL DEFAULT 'muerte';   -- muerte · reinicio
+  CREATE INDEX IF NOT EXISTS users_device ON users (device_id);
+  CREATE INDEX IF NOT EXISTS users_ip ON users (ip_hash);
+  `,
 ];
+
+/** Identificador anónimo que genera la app en cada teléfono. Si no tiene la forma esperada, se ignora. */
+const cleanDevice = (d) => (typeof d === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(d) ? d : '');
+
+/** La "red" de una IP: IPv4 tal cual; IPv6 por su prefijo /64 (los celulares rotan el resto por privacidad). */
+function networkOf(ip) {
+  if (typeof ip !== 'string' || !ip.trim()) return '';
+  ip = ip.trim().replace(/^::ffff:/i, '');
+  if (!ip.includes(':')) return ip;
+  const groups = ip.split(':');
+  return groups.slice(0, 4).every(Boolean) ? `${groups.slice(0, 4).join(':')}::/64` : ip;
+}
 
 const NICK_MAX = 32;
 const graphemes = new Intl.Segmenter('es', { granularity: 'grapheme' });
@@ -213,13 +233,19 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   const st = (sql) => db.prepare(sql);
   const q = {
-    insertUser: st('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname) VALUES (?, ?, ?, 1, ?, ?, ?)'),
+    insertUser: st(`INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname, device_id, ip_hash)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)`),
+    adminUsers: st(`
+      SELECT u.nickname, u.created_at, u.life_no, u.expires_at, u.device_id, u.ip_hash,
+             (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'reinicio') AS reinicios,
+             (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'muerte')   AS muertes
+      FROM users u ORDER BY u.created_at DESC`),
     setNick: st('UPDATE users SET nickname = ? WHERE id = ?'),
     byHash: st('SELECT * FROM users WHERE token_hash = ?'),
     byId: st('SELECT * FROM users WHERE id = ?'),
     setExpiry: st('UPDATE users SET expires_at = ?, alerted = ? WHERE id = ?'),
     newLife: st('UPDATE users SET life_no = life_no + 1, born_at = ?, expires_at = ?, alerted = NULL WHERE id = ?'),
-    endLife: st('INSERT OR REPLACE INTO lives (user_id, life_no, born_at, ended_at) VALUES (?, ?, ?, ?)'),
+    endLife: st('INSERT OR REPLACE INTO lives (user_id, life_no, born_at, ended_at, reason) VALUES (?, ?, ?, ?, ?)'),
     record: st('SELECT MAX(ended_at - born_at) AS ms FROM lives WHERE user_id = ?'),
     addTx: st(`INSERT INTO ledger (user_id, life_no, at, seconds, note, category, amount, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
@@ -265,6 +291,18 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     setAlerted: st('UPDATE users SET alerted = ? WHERE id = ?'),
     getMeta: st('SELECT value FROM meta WHERE key = ?'),
     setMeta: st('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value'),
+  };
+
+  // Secreto propio de esta base para la huella de red: sin él, la huella no se puede revertir a la IP.
+  let pepper = q.getMeta.get('pepper');
+  pepper = pepper ? JSON.parse(pepper.value) : null;
+  if (!pepper) {
+    pepper = randomBytes(32).toString('base64url');
+    q.setMeta.run('pepper', JSON.stringify(pepper));
+  }
+  const hashNetwork = (ip) => {
+    const net = networkOf(ip);
+    return net ? createHmac('sha256', pepper).update(net).digest('base64url').slice(0, 16) : '';
   };
 
   function tx(fn) {
@@ -397,11 +435,11 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   }
 
   return {
-    createUser({ nickname } = {}) {
+    createUser({ nickname, deviceId, ip } = {}) {
       const token = 'tk_' + randomBytes(18).toString('base64url');
       const id = randomUUID();
       const t = now();
-      q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname));
+      q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname), cleanDevice(deviceId), hashNetwork(ip));
       return { token, state: snapshot(must(id)) };
     },
 
@@ -476,7 +514,9 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         const u = must(id);
         const t = now();
         if (u.expires_at > t && !force) throw new AppError(409, 'alive', 'Aún tienes tiempo');
-        q.endLife.run(u.id, u.life_no, u.born_at, Math.min(u.expires_at, t));
+        // ¿Se le acabó el tiempo o reinició teniendo tiempo? Sirve para ver quién aprovecha las vidas.
+        const reason = u.expires_at > t ? 'reinicio' : 'muerte';
+        q.endLife.run(u.id, u.life_no, u.born_at, Math.min(u.expires_at, t), reason);
         q.newLife.run(t, t + initialMs, u.id);
         return { state: snapshot(must(id)) };
       });
@@ -697,6 +737,50 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         }
         return out;
       });
+    },
+
+    /** Resumen para el administrador: cuentas repetidas por dispositivo o red, reinicios y muertes. */
+    adminStats(t = now()) {
+      const users = q.adminUsers.all();
+      const short = (s) => (s ? s.slice(0, 8) : '—');
+      const grouped = (key) => {
+        const groups = new Map();
+        for (const u of users) if (u[key]) groups.set(u[key], [...(groups.get(u[key]) || []), u]);
+        return [...groups]
+          .filter(([, list]) => list.length > 1)
+          .map(([k, list]) => ({
+            id: short(k),
+            cuentas: list.length,
+            nombres: list.map((u) => u.nickname || '(sin nombre)'),
+            creadas: list.map((u) => u.created_at),
+          }))
+          .sort((a, b) => b.cuentas - a.cuentas);
+      };
+      const sum = (k) => users.reduce((s, u) => s + u[k], 0);
+      return {
+        ahora: t,
+        totales: {
+          relojes: users.length,
+          vivos: users.filter((u) => u.expires_at > t).length,
+          enCero: users.filter((u) => u.expires_at <= t).length,
+          reinicios: sum('reinicios'),
+          muertes: sum('muertes'),
+          dispositivos: new Set(users.map((u) => u.device_id).filter(Boolean)).size,
+          redes: new Set(users.map((u) => u.ip_hash).filter(Boolean)).size,
+        },
+        dispositivosConVariasCuentas: grouped('device_id'),
+        redesConVariasCuentas: grouped('ip_hash'),
+        relojes: users.slice(0, 500).map((u) => ({
+          nombre: u.nickname,
+          creado: u.created_at,
+          vida: u.life_no,
+          reinicios: u.reinicios,
+          muertes: u.muertes,
+          restanteSeg: Math.max(0, Math.round((u.expires_at - t) / 1000)),
+          dispositivo: short(u.device_id),
+          red: short(u.ip_hash),
+        })),
+      };
     },
 
     getMeta(key) {

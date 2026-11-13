@@ -25,6 +25,8 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
 - **Alertas push** a 24 h, 1 h, 10 min y al llegar a cero, aunque la app esté cerrada.
 - **Sin contraseñas**: al empezar eliges un nombre o apodo (opcional) y la app te muestra tu *llave*, tu identificador. Con ella abres el mismo reloj en otro dispositivo (Ajustes → Tu llave).
 - PWA instalable; sin conexión muestra el último estado.
+- **Panel `/admin`** (con `ADMIN_TOKEN`): cuentas repetidas por teléfono o por red, reinicios voluntarios y muertes por reloj. Cada teléfono tiene un identificador anónimo aleatorio y de la red solo se guarda una huella cifrada con un secreto del servidor: **la IP nunca se guarda**.
+- **Las actualizaciones no tocan los relojes**: datos en el volumen, migraciones que solo agregan, copia de seguridad automática antes de migrar, y la app nunca borra una llave por su cuenta.
 
 ## Stack
 
@@ -58,6 +60,7 @@ No actives *Serverless / App Sleeping*: el servidor tiene que estar despierto pa
 | Variable | Por defecto | Para qué |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Activa al Guardián |
+| `ADMIN_TOKEN` | — | Clave del panel `/admin` (sin ella, el panel está apagado) |
 | `JUDGE_MODEL` | `claude-haiku-5-5` | Modelo del Guardián |
 | `MIN_WAGE_MONTHLY` | `1750905` | Salario mínimo mensual (actualízalo cada año) |
 | `INITIAL_SECONDS` | `604800` | Tiempo con el que naces (1 semana) |
@@ -83,4 +86,5 @@ Todas las rutas usan `Authorization: Bearer <llave>`, salvo las marcadas.
 | GET · DELETE | `/api/transfer/:code` | Estado · cancelar y recuperar |
 | POST | `/api/rebirth` | Renacer (`{ force: true }` si aún estás vivo) |
 | GET | `/api/push/key` | Llave pública VAPID (sin llave) |
+| GET | `/api/admin/stats` | Resumen anti-abuso (con `Authorization: Bearer <ADMIN_TOKEN>`) |
 | POST · DELETE | `/api/push` | Suscribir o desuscribir alertas |

@@ -47,6 +47,23 @@ function persist() {
   } catch {}
 }
 
+/**
+ * Identificador anónimo de este teléfono (aleatorio, no dice nada de la persona). Vive aparte del reloj:
+ * sirve para saber si en un mismo teléfono se crean varias cuentas.
+ */
+function deviceId() {
+  try {
+    let id = localStorage.getItem('tiempo.device');
+    if (!id) {
+      id = crypto.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem('tiempo.device', id);
+    }
+    return id;
+  } catch {
+    return '';
+  }
+}
+
 // Link de regalo: /r/CÓDIGO (lo abre la cámara del celular al escanear el QR)
 let giftCode = null;
 const deep = /^\/r\/([A-Za-z0-9]{6})\/?$/.exec(location.pathname);
@@ -1104,7 +1121,7 @@ async function start() {
   const b = $('#btn-start');
   b.disabled = true;
   try {
-    const r = await api('POST', '/api/session', { nickname: $('#intro-name').value.trim() });
+    const r = await api('POST', '/api/session', { nickname: $('#intro-name').value.trim(), deviceId: deviceId() });
     saved.token = r.token;
     apply(r.state);
     vibrate(30);
