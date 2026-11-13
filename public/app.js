@@ -1570,9 +1570,26 @@ function registerSW() {
     if (e.data?.open === 'day') openDayFromReminder(); // tocó el recordatorio con la app ya abierta
   });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    // Nueva versión desplegada: recarga, pero nunca a mitad de una acción.
-    if (hadController && !document.querySelector('dialog[open]')) location.reload();
+    // Nueva versión desplegada: recarga, pero nunca a mitad de una acción; si hay una hoja abierta,
+    // recarga apenas se cierre (antes se quedaba con la versión vieja hasta cerrar la app del todo).
+    if (!hadController) return;
+    updateReady = true;
+    reloadIfIdle();
   });
+  // Cualquier hoja que se cierra: si había una versión nueva esperando, se aplica.
+  document.addEventListener('close', () => updateReady && setTimeout(reloadIfIdle, 350), true);
+}
+
+let updateReady = false;
+let lastUpdateCheck = Date.now();
+function reloadIfIdle() {
+  if (updateReady && !document.querySelector('dialog[open]')) location.reload();
+}
+/** En iPhone la app vuelve de segundo plano sin recargar: ahí nadie buscaba versiones nuevas. */
+function checkForUpdate() {
+  if (Date.now() - lastUpdateCheck < 60_000) return;
+  lastUpdateCheck = Date.now();
+  navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {});
 }
 
 /* ───────── eventos ───────── */
@@ -1727,6 +1744,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
   tick();
   if (Date.now() - lastSync > 15_000) refresh();
+  checkForUpdate();
 });
 addEventListener('online', refresh);
 
