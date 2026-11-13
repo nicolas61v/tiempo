@@ -383,7 +383,13 @@ function toast(msg, action) {
   const btn = $('#toast-act');
   btn.hidden = !action;
   if (action) btn.textContent = action.label;
-  $('#toast').classList.add('show');
+  const t = $('#toast');
+  if (t.showPopover) {
+    // a la capa superior, por encima de cualquier hoja abierta (volver a mostrarlo lo sube al tope)
+    if (t.matches(':popover-open')) t.hidePopover();
+    t.showPopover();
+  }
+  t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => $('#toast').classList.remove('show'), action ? 6000 : 3200);
 }
@@ -1117,11 +1123,22 @@ function openHistory() {
 
 /* ───────── ciclo de vida ───────── */
 
+const KEY_IN_TEXT = /tk_[\w-]{16,}/;
+
 async function start() {
+  const name = $('#intro-name').value.trim();
+  const pasted = name.match(KEY_IN_TEXT);
+  if (pasted) {
+    // pegó su llave en el nombre: en realidad quiere abrir su reloj, no crear otro
+    $('#intro-name').value = '';
+    openSettings(true);
+    $('#link-input').value = pasted[0];
+    return toast('Eso es una llave: tócale «Usar» para abrir tu reloj');
+  }
   const b = $('#btn-start');
   b.disabled = true;
   try {
-    const r = await api('POST', '/api/session', { nickname: $('#intro-name').value.trim(), deviceId: deviceId() });
+    const r = await api('POST', '/api/session', { nickname: name, deviceId: deviceId() });
     saved.token = r.token;
     apply(r.state);
     vibrate(30);
@@ -1342,6 +1359,7 @@ function renderNameCount() {
 async function saveName(e) {
   e.preventDefault();
   const input = $('#name-input');
+  if (KEY_IN_TEXT.test(input.value)) return toast('Tu llave no puede ser tu nombre: nadie debe verla');
   try {
     apply((await api('PATCH', '/api/me', { nickname: input.value })).state);
     input.value = S.nickname;

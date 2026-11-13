@@ -147,6 +147,10 @@ export const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS users_device ON users (device_id);
   CREATE INDEX IF NOT EXISTS users_ip ON users (ip_hash);
   `,
+  // v6 · limpieza: nadie debe tener su llave como nombre (se vería en rankings y en /admin). No toca relojes.
+  `
+  UPDATE users SET nickname = '' WHERE instr(lower(nickname), 'tk_') > 0;
+  `,
 ];
 
 /** Identificador anónimo que genera la app en cada teléfono. Si no tiene la forma esperada, se ignora. */
@@ -175,7 +179,8 @@ export function cleanNickname(raw) {
     .replace(/[\p{Cc}\u200B\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return [...graphemes.segment(s)].slice(0, NICK_MAX).map((g) => g.segment).join('').trim();
+  const safe = s.replace(/tk_[A-Za-z0-9_-]{10,}/gi, '').replace(/\s+/g, ' ').trim(); // una llave nunca es un nombre
+  return [...graphemes.segment(safe)].slice(0, NICK_MAX).map((g) => g.segment).join('').trim();
 }
 
 const sha256 = (s) => createHash('sha256').update(s).digest('base64url');

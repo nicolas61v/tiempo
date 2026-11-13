@@ -44,14 +44,34 @@ export class Clock {
     this.nums = Object.fromEntries([...host.querySelectorAll('.num')].map((n) => [n.dataset.k, n]));
     this.vals = {};
     this.minute = -1;
+    // Que nunca se salga de la pantalla: se mide y se ajusta al ancho real (cambio de tamaño, fuente que carga tarde).
+    this.width = 0;
+    new ResizeObserver(() => {
+      if (this.host.clientWidth !== this.width) this.fit();
+    }).observe(host);
+    document.fonts?.ready.then(() => this.fit());
+  }
+
+  fit() {
+    const r = this.readout;
+    this.width = this.host.clientWidth;
+    r.style.fontSize = '';
+    const need = [...r.children].reduce((sum, c) => sum + c.getBoundingClientRect().width, 0);
+    if (this.width && need > this.width) {
+      r.style.fontSize = `${(parseFloat(getComputedStyle(r).fontSize) * this.width * 0.97) / need}px`;
+    }
   }
 
   set(ms) {
     const t = split(ms);
     const text = { y: p2(t.y), mo: p2(t.mo), w: String(t.w), d: String(t.d), h: p2(t.h), m: p2(t.m), s: p2(t.s) };
+    let grew = false;
     for (const k in text) {
-      if (this.vals[k] !== text[k]) this.nums[k].textContent = this.vals[k] = text[k];
+      if (this.vals[k] === text[k]) continue;
+      if (this.vals[k] && this.vals[k].length !== text[k].length) grew = true; // p. ej. 100 años: un dígito más
+      this.nums[k].textContent = this.vals[k] = text[k];
     }
+    if (grew) this.fit();
     this.readout.classList.toggle('beat', t.s % 2 === 0);
 
     const minute = Math.floor(ms / 60_000);
