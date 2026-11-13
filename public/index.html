@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#030504">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Tu reloj de vida. Empiezas con una semana.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tiempo">
+  <meta name="app-version" content="__VERSION__">
+  <meta name="initial-seconds" content="__INITIAL__">
+  <meta name="min-wage" content="__MIN_WAGE__">
+  <title>Tiempo</title>
+  <link rel="preload" href="/fonts/inter-latin-200-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body data-phase="boot" data-mood="ok">
+  <main class="app">
+    <header class="top">
+      <button class="icon-btn" id="btn-history" type="button" aria-label="Historial">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg>
+      </button>
+      <span class="life" id="life"></span>
+      <button class="icon-btn" id="btn-settings" type="button" aria-label="Ajustes">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+      </button>
+    </header>
+
+    <section class="stage">
+      <p class="status" id="status">Tu reloj</p>
+      <div class="clock" id="clock" role="timer"></div>
+      <p class="expiry" id="expiry"></p>
+      <p class="gift" id="gift" hidden></p>
+      <p class="intro">Empiezas con <b id="intro-initial">1 semana</b>. Vivir cuesta un día por día. Cada día cuéntale al Guardián qué hiciste: él decide qué te suma y qué te resta. Si llega a cero, se acabó.</p>
+      <button class="last" id="last" type="button" hidden></button>
+    </section>
+
+    <footer class="dock dock-start">
+      <button class="btn btn-earn" id="btn-start" type="button">Empezar</button>
+      <button class="link" id="btn-have-key" type="button">Ya tengo una llave</button>
+    </footer>
+    <footer class="dock dock-alive">
+      <button class="btn btn-earn btn-day" id="btn-day" type="button">Contar mi día</button>
+      <button class="btn btn-spend btn-sm" id="btn-money" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3"/></svg>Plata
+      </button>
+      <button class="btn btn-spend btn-sm" id="btn-share" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14l-4-4M20 16H6l4 4"/></svg>Compartir
+      </button>
+    </footer>
+    <footer class="dock dock-dead">
+      <button class="btn btn-earn" id="btn-rebirth" type="button">Renacer</button>
+    </footer>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <span id="toast-msg"></span>
+    <button id="toast-act" type="button" hidden></button>
+  </div>
+
+  <!-- Ganar / gastar -->
+  <dialog class="sheet" id="sheet-tx" aria-label="Mover tiempo">
+    <form class="sheet-body" id="tx-form" novalidate>
+      <div class="grip"></div>
+      <div class="seg" role="tablist">
+        <button type="button" role="tab" data-mode="earn">Ganar</button>
+        <button type="button" role="tab" data-mode="spend">Gastar</button>
+      </div>
+      <div class="cats" id="tx-cats" role="group" aria-label="Categoría"></div>
+      <p class="cat-hint" id="tx-hint"></p>
+      <div class="amount">
+        <output class="amount-value" id="tx-amount">0m</output>
+        <p class="formula" id="tx-formula"></p>
+        <button type="button" class="link clear" id="tx-clear">Borrar</button>
+      </div>
+      <label class="money" id="tx-money-wrap">
+        <span aria-hidden="true">$</span>
+        <input id="tx-money" inputmode="numeric" placeholder="0" autocomplete="off" enterkeyhint="done" aria-label="Valor en pesos">
+      </label>
+      <div class="chips" id="tx-chips"></div>
+      <div class="suggest" id="tx-suggest"></div>
+      <input class="field" id="tx-note" maxlength="80" placeholder="¿En qué? (opcional)" autocomplete="off" enterkeyhint="done">
+      <p class="preview" id="tx-preview"></p>
+      <button type="submit" class="btn btn-earn" id="tx-submit" disabled>Ganar</button>
+    </form>
+  </dialog>
+
+  <!-- Mi día: conversación con el Guardián -->
+  <dialog class="sheet" id="sheet-day" aria-labelledby="d-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <div class="day-head">
+        <div>
+          <h2 class="sheet-title" id="d-title">Mi día</h2>
+          <p class="row-s">Cuéntale (o díctale) al Guardián qué hiciste. Gym y estudio necesitan foto; la plata va en tu palabra.</p>
+        </div>
+        <button class="icon-btn" id="d-voice" type="button" aria-pressed="false" aria-label="Leer los veredictos en voz alta" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+        </button>
+      </div>
+      <div class="thread" id="d-thread"></div>
+      <form class="composer" id="d-form">
+        <div class="thumbs" id="d-thumbs"></div>
+        <textarea class="field area" id="d-text" rows="3" maxlength="2000" placeholder="Hoy fui al gym una hora, estudié inglés 2 h y vendí 3 kits por 90 mil…"></textarea>
+        <div class="composer-row">
+          <label class="pill photo-btn">
+            <input type="file" id="d-file" accept="image/*" multiple hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Foto
+          </label>
+          <button class="pill mic-btn" id="d-mic" type="button" aria-pressed="false" aria-label="Dictar con la voz" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+          </button>
+          <button class="btn btn-earn" id="d-send" type="submit">Enviar al Guardián</button>
+        </div>
+        <p class="row-s mic-note" id="d-mic-note" role="status" hidden></p>
+        <p class="row-s" id="d-left"></p>
+      </form>
+      <div class="day-actions" id="d-actions" hidden>
+        <button class="btn btn-earn" id="d-accept" type="button">Aceptar</button>
+        <button class="link" id="d-discard" type="button">Descartar este día</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Compartir tiempo -->
+  <dialog class="sheet" id="sheet-share" aria-labelledby="sh-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="sh-title">Compartir tiempo</h2>
+      <div class="seg" role="tablist">
+        <button type="button" role="tab" data-tab="send">Enviar</button>
+        <button type="button" role="tab" data-tab="recv">Recibir</button>
+      </div>
+      <section class="pane" id="sh-send">
+        <div class="amount">
+          <output class="amount-value" id="sh-amount">0m</output>
+          <p class="formula" id="sh-preview"></p>
+          <button type="button" class="link clear" id="sh-clear">Borrar</button>
+        </div>
+        <div class="chips" id="sh-chips"></div>
+        <button class="btn btn-earn" id="sh-create" type="button" disabled>Crear código</button>
+      </section>
+      <section class="pane" id="sh-code" hidden>
+        <div class="qr" id="sh-qr"></div>
+        <p class="code" id="sh-codetext"></p>
+        <p class="row-s center" id="sh-status"></p>
+        <button class="link" id="sh-cancel" type="button">Cancelar y recuperar mi tiempo</button>
+      </section>
+      <form class="pane" id="sh-recv" hidden>
+        <input class="field code-input" id="sh-input" maxlength="7" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-label="Código de tiempo">
+        <button class="btn btn-earn" type="submit">Recibir tiempo</button>
+        <p class="row-s center">O escanea el QR con la cámara de tu celular.</p>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Historial -->
+  <dialog class="sheet" id="sheet-history" aria-labelledby="h-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="h-title">Esta vida</h2>
+      <div class="stats">
+        <div class="stat"><span class="stat-k">Ganado</span><span class="stat-v up" id="st-earned">0m</span></div>
+        <div class="stat"><span class="stat-k">Gastado</span><span class="stat-v down" id="st-spent">0m</span></div>
+        <div class="stat"><span class="stat-k">Vivido</span><span class="stat-v" id="st-lived">0m</span></div>
+      </div>
+      <p class="note-line" id="st-record" hidden></p>
+      <ol class="ledger" id="ledger"></ol>
+      <p class="empty" id="ledger-empty">Aún no hay movimientos. Tu tiempo ya está corriendo.</p>
+    </div>
+  </dialog>
+
+  <!-- Ajustes -->
+  <dialog class="sheet" id="sheet-settings" aria-labelledby="s-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="s-title">Ajustes</h2>
+      <div class="rows">
+        <div class="row">
+          <div><p class="row-t">Tu tasa de cambio</p><p class="row-s" id="rate-text"></p></div>
+        </div>
+        <div class="row needs-session">
+          <div><p class="row-t">Alertas</p><p class="row-s" id="push-status"></p></div>
+          <button class="pill" id="btn-push" type="button">Activar</button>
+        </div>
+        <div class="row" id="row-install" hidden>
+          <div><p class="row-t">Instalar</p><p class="row-s" id="install-hint"></p></div>
+          <button class="pill" id="btn-install" type="button">Instalar</button>
+        </div>
+        <div class="row needs-session">
+          <div><p class="row-t">Tu llave</p><p class="row-s">Abre este reloj en otro dispositivo. No la compartas.</p><p class="key" id="key-text"></p></div>
+          <button class="pill" id="btn-copy-key" type="button">Copiar</button>
+        </div>
+        <form class="row link-row" id="link-form">
+          <input class="field" id="link-input" placeholder="Pegar una llave" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
+          <button class="pill" type="submit">Usar</button>
+        </form>
+        <div class="row needs-session">
+          <div><p class="row-t">Empezar de nuevo</p><p class="row-s">Pierdes esta vida y renaces desde cero.</p></div>
+          <button class="pill pill-danger" id="btn-reset" type="button">Reiniciar</button>
+        </div>
+      </div>
+      <p class="foot" id="foot"></p>
+    </div>
+  </dialog>
+
+  <!-- Confirmación -->
+  <dialog class="sheet" id="sheet-confirm" aria-labelledby="cf-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="cf-title"></h2>
+      <p class="cf-text" id="cf-text"></p>
+      <div class="pair">
+        <button class="btn btn-spend" id="cf-no" type="button">Cancelar</button>
+        <button class="btn btn-danger" id="cf-yes" type="button">Sí</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
