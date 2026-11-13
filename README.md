@@ -8,7 +8,7 @@ Un solo axioma: **1 día de vida = 1 salario mínimo diario** (SMMLV 2026 $1.750
 
 | Categoría | Conversión | Prueba |
 |---|---|---|
-| Dinero | $ ÷ 58.364 = días | Tu palabra (botón Plata) |
+| Dinero | $ ÷ 58.364 = días | Tu palabra (botón Dinero) |
 | Inversión en ti | la mitad del dinero | Tu palabra |
 | Gasto (antojos, impulso) | $ ÷ 58.364 = días que pierdes | Tu palabra |
 | Aprendizaje | 1 h → 2 h (máx. 8 h/día) | Foto, la revisa el Guardián |
@@ -21,7 +21,7 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
 
 - **El servidor guarda una fecha**: cuándo se agota tu tiempo. El teléfono hace la cuenta regresiva.
 - **Mi día**: escribes lo que hiciste y subes fotos. El Guardián (Claude Haiku 5.5) devuelve un veredicto por actividad. Puedes **replicar 2 veces**; luego aceptas. La IA solo clasifica: el tiempo lo calcula la fórmula en el servidor. Las fotos se borran al cerrar el día; se guarda solo su huella, para que una misma foto no sirva dos veces.
-- **Compartir**: creas un código de 6 letras + QR por X tiempo. El tiempo sale de tu reloj al instante; quien escanea el QR (con la cámara del celular) o escribe el código lo recibe. Si nadie lo reclama en 10 minutos, vuelve solo.
+- **Transferir**: creas un código de 6 letras + QR por X tiempo. El tiempo sale de tu reloj al instante; quien lo escanea desde la app (Transferir → Recibir → Escanear QR) o escribe el código lo recibe. Si nadie lo reclama en 10 minutos, vuelve solo.
 - **Alertas push** a 24 h, 1 h, 10 min y al llegar a cero, aunque la app esté cerrada.
 - **Recordatorio de "Mi día"** (cada 6 h, 12 h —por defecto— o 24 h, o apagado): si en ese lapso no le cuentas nada al Guardián, te lo recuerda. Nunca de 22:00 a 8:00 en la hora de tu teléfono; al tocarlo se abre "Mi día".
 - **Sin contraseñas**: al empezar eliges un nombre o apodo (opcional) y la app te muestra tu *llave*, tu identificador. Con ella abres el mismo reloj en otro dispositivo (Ajustes → Tu llave).

@@ -177,9 +177,28 @@ button { cursor: pointer; touch-action: manipulation; }
 [data-phase='intro'] #btn-history,
 [data-phase='boot'] #btn-history { visibility: hidden; }
 [data-phase='intro'] .needs-session { display: none; }
-.dock-alive { grid-template-columns: 1fr 1fr; gap: 10px; }
-.dock-alive .btn-day { grid-column: 1 / -1; }
-.btn-sm { height: 50px; font-size: 15px; }
+/* tres botones redondos: Dinero · Mi día (el principal) · Transferir */
+.dock-alive { grid-template-columns: repeat(3, 1fr); align-items: end; justify-items: center; gap: 8px; padding: 0 4px 6px; }
+.orb {
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  padding: 0; border: 0; background: none;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.01em; color: var(--muted);
+}
+.orb .ring {
+  display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--raise); color: var(--ink);
+  transition: transform 0.12s ease, background-color 0.2s ease;
+}
+.orb .ring svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.orb:active .ring { transform: scale(0.93); background: rgba(255, 255, 255, 0.08); }
+.orb-main { color: var(--ink); }
+.orb-main .ring {
+  width: 76px; height: 76px; border: 0;
+  background: var(--green); color: #0f2208;
+  box-shadow: 0 10px 34px -12px color-mix(in srgb, var(--green) 60%, transparent);
+}
+.orb-main .ring svg { width: 30px; height: 30px; stroke-width: 1.7; }
+.orb-main:active .ring { background: var(--green); }
 .btn svg, .pill svg {
   width: 18px; height: 18px; flex: none;
   fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;

@@ -209,7 +209,7 @@ function renderIntro() {
   // En iPhone, el navegador y la app instalada guardan relojes distintos: que no cree uno nuevo sin querer.
   gift.textContent = standalone
     ? 'Alguien te está regalando tiempo. Empieza tu reloj para recibirlo.'
-    : `Te están regalando tiempo (código ${giftCode}). Si ya tienes Tiempo instalado, ábrelo y en Compartir → Recibir escanea el QR o escribe el código. Si es tu primera vez, empieza aquí.`;
+    : `Te están regalando tiempo (código ${giftCode}). Si ya tienes Tiempo instalado, ábrelo y en Transferir → Recibir escanea el QR o escribe el código. Si es tu primera vez, empieza aquí.`;
   $('#recover').hidden = !saved.oldKeys?.length;
 }
 
@@ -402,7 +402,7 @@ function toast(msg, action) {
   toastTimer = setTimeout(() => $('#toast').classList.remove('show'), action ? 6000 : 3200);
 }
 
-/* ───────── Plata: lo que va en tu palabra ───────── */
+/* ───────── Dinero: lo que va en tu palabra ───────── */
 
 let txMode = 'earn';
 let txCat = ORDER.earn[0];
@@ -936,7 +936,7 @@ async function discardDay() {
   toast('Día descartado');
 }
 
-/* ───────── Compartir tiempo: código + QR ───────── */
+/* ───────── Transferir tiempo: código + QR ───────── */
 
 let shareTab = 'send';
 let shareAmount = 0;
@@ -1119,7 +1119,7 @@ async function openScanner() {
           claimCode(code);
         }, 250);
       },
-      onOther: () => ($('#scan-msg').textContent = 'Ese QR no es de Tiempo. Busca el de Compartir → Enviar.'),
+      onOther: () => ($('#scan-msg').textContent = 'Ese QR no es de Tiempo. Busca el de Transferir → Enviar.'),
     });
     if (d.open && !d.dataset.closing) stopScan = stop;
     else stop(); // cerró la hoja mientras pedía permiso
@@ -1211,7 +1211,7 @@ async function claimGift({ ask = false } = {}) {
     const name = S?.nickname ? `${S.nickname} · Vida ${S.lifeNo}` : `Vida ${S?.lifeNo ?? 1}`;
     const ok = await confirmSheet({
       title: '¿Recibir en este reloj?',
-      text: `Se sumará al reloj de este navegador (${name}). Si usas Tiempo instalado como app, mejor ábrela y en Compartir → Recibir escanea el QR o escribe el código ${code}.`,
+      text: `Se sumará al reloj de este navegador (${name}). Si usas Tiempo instalado como app, mejor ábrela y en Transferir → Recibir escanea el QR o escribe el código ${code}.`,
       ok: 'Recibir aquí',
       danger: false,
     });
@@ -1549,7 +1549,7 @@ $('#btn-history').addEventListener('click', openHistory);
 $('#last').addEventListener('click', openHistory);
 $('#btn-settings').addEventListener('click', () => openSettings());
 
-// Plata
+// Dinero
 $('#tx-form').addEventListener('submit', submitTx);
 $('#tx-cats').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-cat]');
@@ -1611,7 +1611,7 @@ if (synth) {
   synth.addEventListener?.('voiceschanged', pickVoice);
 }
 
-// Compartir
+// Transferir
 $('#sheet-share .seg').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-tab]');
   if (!b) return;

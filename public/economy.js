@@ -12,7 +12,7 @@ export const HOUR = 3_600;
  * unit:   'money' (pesos), 'hours' (horas de actividad) o 'seconds' (tiempo directo)
  * rate:   multiplicador sobre la conversión base
  * cap:    máximo de horas que cuentan en 24 h (anti-trampa)
- * proof:  'none'  → se registra en tu palabra (botón Plata)
+ * proof:  'none'  → se registra en tu palabra (botón Dinero)
  *         'photo' → solo por "Mi día": el Guardián exige foto
  *         'judge' → solo por "Mi día": el Guardián decide, foto opcional
  * system: movimientos internos (transferencias), no se eligen a mano
