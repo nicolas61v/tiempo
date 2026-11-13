@@ -190,6 +190,21 @@ test('compartir: cancelar devuelve y los códigos vencidos vuelven solos', () =>
   assert.throws(() => store.claimTransfer(id, '12'), { code: 'code' });
 });
 
+/* ───────── nombre o apodo ───────── */
+
+test('nombre o apodo: opcional, máximo 32 caracteres, limpio y editable', () => {
+  const store = openStore({ minWage: WAGE });
+  const { token, state } = store.createUser({ nickname: '  Nico   el  del\ttiempo  ' });
+  assert.equal(state.nickname, 'Nico el del tiempo');
+  const id = store.auth(token).id;
+  assert.equal(store.setNickname(id, 'x'.repeat(40)).state.nickname, 'x'.repeat(32));
+  assert.equal(store.setNickname(id, '⏳'.repeat(40)).state.nickname, '⏳'.repeat(32)); // un emoji = un carácter
+  assert.equal(store.setNickname(id, 'Ana\u202Eloc\u0007\u200B').state.nickname, 'Analoc'); // sin trucos invisibles
+  assert.equal(store.setNickname(id, '').state.nickname, '');
+  assert.equal(store.setNickname(id, 42).state.nickname, '');
+  assert.equal(store.createUser().state.nickname, '');
+});
+
 /* ───────── alertas ───────── */
 
 test('bandas de alerta', () => {

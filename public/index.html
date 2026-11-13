@@ -43,6 +43,7 @@
     </section>
 
     <footer class="dock dock-start">
+      <input class="field name-field" id="intro-name" maxlength="32" placeholder="Tu nombre o apodo (opcional)" autocomplete="nickname" enterkeyhint="go" aria-label="Tu nombre o apodo, máximo 32 caracteres">
       <button class="btn btn-earn" id="btn-start" type="button">Empezar</button>
       <button class="link" id="btn-have-key" type="button">Ya tengo una llave</button>
     </footer>
@@ -194,9 +195,17 @@
           <div><p class="row-t">Instalar</p><p class="row-s" id="install-hint"></p></div>
           <button class="pill" id="btn-install" type="button">Instalar</button>
         </div>
+        <form class="row name-row needs-session" id="name-form">
+          <div class="grow">
+            <p class="row-t">Tu nombre</p>
+            <input class="field" id="name-input" maxlength="32" placeholder="Nombre o apodo" autocomplete="nickname" enterkeyhint="done" aria-label="Tu nombre o apodo, máximo 32 caracteres">
+            <p class="row-s counter" id="name-count"></p>
+          </div>
+          <button class="pill" type="submit">Guardar</button>
+        </form>
         <div class="row needs-session">
-          <div><p class="row-t">Tu llave</p><p class="row-s">Abre este reloj en otro dispositivo. No la compartas.</p><p class="key" id="key-text"></p></div>
-          <button class="pill" id="btn-copy-key" type="button">Copiar</button>
+          <div><p class="row-t">Tu llave</p><p class="row-s">Es tu identificador: abre este reloj en otro dispositivo. No la compartas.</p><p class="key" id="key-text"></p></div>
+          <button class="pill" id="btn-show-key" type="button">Ver</button>
         </div>
         <form class="row link-row" id="link-form">
           <input class="field" id="link-input" placeholder="Pegar una llave" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
@@ -208,6 +217,18 @@
         </div>
       </div>
       <p class="foot" id="foot"></p>
+    </div>
+  </dialog>
+
+  <!-- Tu llave: se muestra al empezar y desde Ajustes -->
+  <dialog class="sheet" id="sheet-key" aria-labelledby="k-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="k-title">Esta es tu llave</h2>
+      <p class="cf-text">Es tu <b>identificador</b> en Tiempo: con ella abres tu reloj en otro celular o lo recuperas si borras la app. No hay contraseña, así que <b>si la pierdes, pierdes tu reloj</b>. No se la muestres a nadie.</p>
+      <p class="key-box" id="key-full"></p>
+      <button class="btn btn-spend" id="k-copy" type="button">Copiar llave</button>
+      <button class="btn btn-earn" id="k-done" type="button">Ya la guardé</button>
     </div>
   </dialog>
 

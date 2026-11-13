@@ -23,7 +23,7 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
 - **Mi día**: escribes lo que hiciste y subes fotos. El Guardián (Claude Haiku 5.5) devuelve un veredicto por actividad. Puedes **replicar 2 veces**; luego aceptas. La IA solo clasifica: el tiempo lo calcula la fórmula en el servidor. Las fotos se borran al cerrar el día; se guarda solo su huella, para que una misma foto no sirva dos veces.
 - **Compartir**: creas un código de 6 letras + QR por X tiempo. El tiempo sale de tu reloj al instante; quien escanea el QR (con la cámara del celular) o escribe el código lo recibe. Si nadie lo reclama en 10 minutos, vuelve solo.
 - **Alertas push** a 24 h, 1 h, 10 min y al llegar a cero, aunque la app esté cerrada.
-- **Sin contraseñas**: tu *llave* (Ajustes) abre el mismo reloj en otro dispositivo.
+- **Sin contraseñas**: al empezar eliges un nombre o apodo (opcional) y la app te muestra tu *llave*, tu identificador. Con ella abres el mismo reloj en otro dispositivo (Ajustes → Tu llave).
 - PWA instalable; sin conexión muestra el último estado.
 
 ## Stack
@@ -70,8 +70,9 @@ Todas las rutas usan `Authorization: Bearer <llave>`, salvo las marcadas.
 
 | Método | Ruta | |
 |---|---|---|
-| POST | `/api/session` | Crea un reloj y devuelve `{ token, state }` (sin llave) |
+| POST | `/api/session` | `{ nickname? }`: crea un reloj y devuelve `{ token, state }` (sin llave) |
 | GET | `/api/state` | Estado actual |
+| PATCH | `/api/me` | `{ nickname }`: nombre o apodo, máx. 32 caracteres |
 | POST | `/api/tx` | `{ category, amount, note }`: solo categorías "en tu palabra" |
 | DELETE | `/api/tx/:id` | Deshacer (máx. 5 min) |
 | POST | `/api/day` | `{ text, images[] }`: abre "Mi día" y trae el veredicto |

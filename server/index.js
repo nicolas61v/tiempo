@@ -126,7 +126,8 @@ async function api(req, res, p) {
 
   if (m === 'POST' && p === '/api/session') {
     if (!limitSessions(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un rato');
-    return send(res, 201, store.createUser());
+    const b = await readJson(req);
+    return send(res, 201, store.createUser({ nickname: b.nickname }));
   }
   if (m === 'GET' && p === '/api/push/key') return send(res, 200, { publicKey: push.publicKey });
 
@@ -136,6 +137,11 @@ async function api(req, res, p) {
   const id = user.id;
 
   if (m === 'GET' && p === '/api/state') return send(res, 200, store.state(id));
+
+  if (m === 'PATCH' && p === '/api/me') {
+    const b = await readJson(req);
+    return send(res, 200, store.setNickname(id, b.nickname));
+  }
 
   if (m === 'POST' && p === '/api/tx') {
     const b = await readJson(req);

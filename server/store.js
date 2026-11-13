@@ -135,7 +135,28 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS transfers_pending ON transfers (status, expires_at);
   `,
+  // v4 · nombre o apodo visible (base de los futuros rankings)
+  `
+  ALTER TABLE users ADD COLUMN nickname TEXT NOT NULL DEFAULT '';
+  `,
 ];
+
+const NICK_MAX = 32;
+const graphemes = new Intl.Segmenter('es', { granularity: 'grapheme' });
+/**
+ * Nombre o apodo: máximo 32 caracteres "de los que se ven" (un emoji cuenta como uno).
+ * Quita controles y marcas invisibles de dirección/ancho cero que sirven para suplantar nombres.
+ */
+export function cleanNickname(raw) {
+  if (typeof raw !== 'string') return '';
+  const s = raw
+    .normalize('NFC')
+    .replace(/\s+/g, ' ') // primero tabs/saltos → espacio (si no, el tab se borra y pega las palabras)
+    .replace(/[\p{Cc}\u200B\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [...graphemes.segment(s)].slice(0, NICK_MAX).map((g) => g.segment).join('').trim();
+}
 
 const sha256 = (s) => createHash('sha256').update(s).digest('base64url');
 
@@ -173,7 +194,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   const st = (sql) => db.prepare(sql);
   const q = {
-    insertUser: st('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at) VALUES (?, ?, ?, 1, ?, ?)'),
+    insertUser: st('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname) VALUES (?, ?, ?, 1, ?, ?, ?)'),
+    setNick: st('UPDATE users SET nickname = ? WHERE id = ?'),
     byHash: st('SELECT * FROM users WHERE token_hash = ?'),
     byId: st('SELECT * FROM users WHERE id = ?'),
     setExpiry: st('UPDATE users SET expires_at = ?, alerted = ? WHERE id = ?'),
@@ -248,6 +270,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     const totals = q.totals.get(u.id, u.life_no);
     return {
       now: now(),
+      nickname: u.nickname,
       lifeNo: u.life_no,
       bornAt: u.born_at,
       expiresAt: u.expires_at,
@@ -355,12 +378,18 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   }
 
   return {
-    createUser() {
+    createUser({ nickname } = {}) {
       const token = 'tk_' + randomBytes(18).toString('base64url');
       const id = randomUUID();
       const t = now();
-      q.insertUser.run(id, hashToken(token), t, t, t + initialMs);
+      q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname));
       return { token, state: snapshot(must(id)) };
+    },
+
+    setNickname(id, nickname) {
+      must(id);
+      q.setNick.run(cleanNickname(nickname), id);
+      return { state: snapshot(must(id)) };
     },
 
     auth(token) {

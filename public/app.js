@@ -190,7 +190,7 @@ function renderIntro() {
 function render() {
   if (!S || !saved.token) return renderIntro();
   $('#gift').hidden = true;
-  $('#life').textContent = `Vida ${S.lifeNo}`;
+  $('#life').textContent = S.nickname ? `${S.nickname} · Vida ${S.lifeNo}` : `Vida ${S.lifeNo}`;
   $('#btn-rebirth').textContent = `Renacer con ${fmtLong(S.initialSeconds)}`;
   lastMinute = -1;
   tick();
@@ -1072,12 +1072,11 @@ async function start() {
   const b = $('#btn-start');
   b.disabled = true;
   try {
-    const r = await api('POST', '/api/session');
+    const r = await api('POST', '/api/session', { nickname: $('#intro-name').value.trim() });
     saved.token = r.token;
     apply(r.state);
     vibrate(30);
-    toast('Tu tiempo empezó a correr.');
-    if (giftCode) claimGift();
+    openKeySheet(true); // lo primero: que sepa que esa llave es su identificador (el regalo se reclama al cerrarla)
   } catch (err) {
     toast(err.message);
   } finally {
@@ -1214,6 +1213,8 @@ const maskKey = (k) => (k ? `${k.slice(0, 7)}••••••${k.slice(-4)}` :
 
 function openSettings(focusLink = false) {
   $('#key-text').textContent = maskKey(saved.token);
+  $('#name-input').value = S?.nickname || '';
+  renderNameCount();
   $('#rate-text').textContent = `1 día de vida = ${cop.format(DAY_VALUE)}, un salario mínimo diario (${cop.format(MIN_WAGE)} al mes).`;
   $('#foot').textContent = `Tiempo · ${VERSION}`;
   renderInstall();
@@ -1222,13 +1223,84 @@ function openSettings(focusLink = false) {
   if (focusLink) setTimeout(() => $('#link-input').focus(), 380);
 }
 
+/* ───────── tu llave y tu nombre ───────── */
+
+const graphemeCount = (s) =>
+  typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter('es', { granularity: 'grapheme' }).segment(s)].length : s.length;
+
+let keyIsWelcome = false;
+
+function openKeySheet(welcome = false) {
+  keyIsWelcome = welcome;
+  $('#key-full').textContent = saved.token || '';
+  $('#k-title').textContent = welcome ? 'Esta es tu llave' : 'Tu llave';
+  $('#k-done').textContent = welcome ? 'Ya la guardé' : 'Listo';
+  resetCopyButton();
+  openSheet($('#sheet-key'));
+}
+
+function resetCopyButton() {
+  const b = $('#k-copy');
+  b.classList.remove('done');
+  b.textContent = 'Copiar llave';
+}
+
+/** Selecciona la llave en pantalla, para copiarla a mano si el portapapeles no está disponible. */
+function selectKey() {
+  const range = document.createRange();
+  range.selectNodeContents($('#key-full'));
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 async function copyKey() {
+  const b = $('#k-copy');
   try {
     await navigator.clipboard.writeText(saved.token);
-    toast('Llave copiada. Guárdala en un lugar seguro.');
   } catch {
-    $('#key-text').textContent = saved.token; // si no hay portapapeles, muéstrala completa
-    toast('Cópiala a mano');
+    selectKey();
+    toast('No pude copiarla sola: ya está seleccionada, cópiala tú.');
+    return;
+  }
+  vibrate(15);
+  // La confirmación se queda mientras la hoja esté abierta: que no quede duda de que se copió.
+  b.classList.add('done');
+  b.textContent = '✓ Llave copiada';
+  toast('Llave copiada. Pégala en tus notas o en un lugar seguro.');
+}
+
+function keyDone() {
+  if (keyIsWelcome) {
+    saved.keySaved = true;
+    persist();
+  }
+  closeSheet($('#sheet-key'));
+}
+
+function keyClosed() {
+  if (!keyIsWelcome) return;
+  keyIsWelcome = false;
+  if (giftCode) claimGift();
+  else toast('Tu tiempo empezó a correr.');
+}
+
+function renderNameCount() {
+  const n = graphemeCount($('#name-input').value.trim());
+  $('#name-count').textContent = `${n}/32`;
+}
+
+async function saveName(e) {
+  e.preventDefault();
+  const input = $('#name-input');
+  try {
+    apply((await api('PATCH', '/api/me', { nickname: input.value })).state);
+    input.value = S.nickname;
+    renderNameCount();
+    input.blur();
+    toast(S.nickname ? `Listo, ${S.nickname}.` : 'Nombre borrado');
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -1398,7 +1470,18 @@ $('#btn-install').addEventListener('click', async () => {
   installEvent = null;
   renderInstall();
 });
-$('#btn-copy-key').addEventListener('click', copyKey);
+$('#btn-show-key').addEventListener('click', () => {
+  closeSheet($('#sheet-settings'));
+  setTimeout(() => openKeySheet(false), 240);
+});
+$('#k-copy').addEventListener('click', copyKey);
+$('#k-done').addEventListener('click', keyDone);
+$('#sheet-key').addEventListener('close', keyClosed);
+$('#name-form').addEventListener('submit', saveName);
+$('#name-input').addEventListener('input', renderNameCount);
+$('#intro-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') start();
+});
 $('#link-form').addEventListener('submit', linkKey);
 $('#btn-reset').addEventListener('click', resetLife);
 $('#toast-act').addEventListener('click', () => {
