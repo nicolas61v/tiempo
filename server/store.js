@@ -67,6 +67,7 @@ export function localHour(t, tz) {
   return Number(f.format(t)) % 24;
 }
 
+const newToken = () => 'tk_' + randomBytes(18).toString('base64url');
 const hashToken = (token) => createHash('sha256').update(token).digest('base64url');
 
 const PRAGMAS = `
@@ -288,6 +289,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
              (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'muerte')   AS muertes
       FROM users u ORDER BY u.created_at DESC`),
     setNick: st('UPDATE users SET nickname = ? WHERE id = ?'),
+    setToken: st('UPDATE users SET token_hash = ? WHERE id = ?'),
     byHash: st('SELECT * FROM users WHERE token_hash = ?'),
     byId: st('SELECT * FROM users WHERE id = ?'),
     setExpiry: st('UPDATE users SET expires_at = ?, alerted = ? WHERE id = ?'),
@@ -496,7 +498,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   return {
     createUser({ nickname, deviceId, ip } = {}) {
-      const token = 'tk_' + randomBytes(18).toString('base64url');
+      const token = newToken();
       const id = randomUUID();
       const t = now();
       q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname), cleanDevice(deviceId), hashNetwork(ip));
@@ -507,6 +509,14 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       must(id);
       q.setNick.run(cleanNickname(nickname), id);
       return { state: snapshot(must(id)) };
+    },
+
+    /** Llave nueva para el mismo reloj (si alguien vio la anterior). La vieja deja de servir; el reloj no cambia. */
+    rotateToken(id) {
+      must(id);
+      const token = newToken();
+      q.setToken.run(hashToken(token), id);
+      return { token, state: snapshot(must(id)) };
     },
 
     /** Cada cuánto recordarle contar su día (0 = nunca). La cuenta arranca de nuevo desde ahora. */

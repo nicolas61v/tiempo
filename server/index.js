@@ -156,6 +156,8 @@ async function api(req, res, p) {
 
   if (m === 'GET' && p === '/api/state') return send(res, 200, store.state(id));
 
+  if (m === 'POST' && p === '/api/me/key') return send(res, 200, store.rotateToken(id));
+
   if (m === 'PATCH' && p === '/api/me') {
     const b = await readJson(req);
     if (b?.remindEvery !== undefined) return send(res, 200, store.setReminder(id, b.remindEvery, b.tz));

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import qrcode from '../public/vendor/qrcode.mjs';
 import jsQR from '../public/vendor/jsqr.mjs';
-import { codeFromQr } from '../public/scan.js';
+import { codeFromQr, keyFromQr, readQr } from '../public/scan.js';
 
 /** Pinta un QR como lo hace la app (módulos oscuros sobre fondo claro) y devuelve sus píxeles RGBA. */
 function render(text, { scale = 6, quiet = 4 } = {}) {
@@ -38,4 +38,16 @@ test('escáner: solo acepta códigos de Tiempo', () => {
   assert.equal(codeFromQr('https://otra.cosa/menu'), null);
   assert.equal(codeFromQr('WIFI:S:casa;T:WPA;P:1234;;'), null);
   assert.equal(codeFromQr(null), null);
+});
+
+test('escáner: el QR de la llave lleva solo la llave y se lee igual', () => {
+  const key = 'tk_PRUEBAprueba0000000000xx';
+  const { px, size } = render(key);
+  const read = jsQR(px, size, size, { inversionAttempts: 'attemptBoth' });
+  assert.deepEqual(readQr(read?.data), { kind: 'key', value: key });
+  assert.deepEqual(readQr('https://tiempo.app/r/AB2CD3'), { kind: 'code', value: 'AB2CD3' });
+  assert.equal(keyFromQr(' tk_PRUEBAprueba0000000000xx\n'), key);
+  assert.equal(keyFromQr('tk_corta'), null);
+  assert.equal(keyFromQr('https://evil.example/?k=tk_PRUEBAprueba0000000000xx'), null); // solo la llave sola
+  assert.equal(readQr('hola'), null);
 });

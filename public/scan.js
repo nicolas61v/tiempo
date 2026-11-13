@@ -9,6 +9,20 @@ export function codeFromQr(text) {
   return m ? m[1].toUpperCase() : null;
 }
 
+/** Llave de Tiempo en un QR (solo la llave, sin link: la cámara del sistema no la abre en el navegador). */
+export function keyFromQr(text) {
+  const s = String(text ?? '').trim();
+  return /^tk_[\w-]{16,64}$/.test(s) ? s : null;
+}
+
+/** Qué hay en un QR: { kind: 'code' | 'key', value } o null si no es de Tiempo. */
+export function readQr(text) {
+  const key = keyFromQr(text);
+  if (key) return { kind: 'key', value: key };
+  const code = codeFromQr(text);
+  return code ? { kind: 'code', value: code } : null;
+}
+
 export const canScan = () => Boolean(globalThis.navigator?.mediaDevices?.getUserMedia);
 
 /** Devuelve detect(video) → texto del QR o null. */
@@ -38,10 +52,10 @@ async function makeDetector() {
 }
 
 /**
- * Abre la cámara en <video> y llama onCode(código) al leer un QR de Tiempo, u onOther(texto) si lee
- * otro QR. Devuelve stop(). Lanza si no hay permiso o no hay cámara.
+ * Abre la cámara en <video> y llama onFound({ kind, value }) al leer un QR de Tiempo (código de regalo
+ * o llave), u onOther(texto) si lee otro QR. Devuelve stop(). Lanza si no hay permiso o no hay cámara.
  */
-export async function startScan(video, { onCode, onOther }) {
+export async function startScan(video, { onFound, onOther }) {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
     video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -66,10 +80,10 @@ export async function startScan(video, { onCode, onOther }) {
         text = await detect(video);
       } catch {}
       if (stopped) return;
-      const code = text && codeFromQr(text);
-      if (code) {
+      const found = text && readQr(text);
+      if (found) {
         stop();
-        onCode(code);
+        onFound(found);
         return;
       }
       if (text) onOther?.(text);

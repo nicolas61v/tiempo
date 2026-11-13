@@ -1103,23 +1103,32 @@ async function claimCode(raw) {
 
 let stopScan = null;
 
-async function openScanner() {
+const SCAN_TEXT = {
+  code: { title: 'Escanear QR', hint: 'Apunta al QR de quien te regala tiempo.', other: 'Ese QR no es de Tiempo. Busca el de Transferir → Enviar.' },
+  key: { title: 'Escanear llave', hint: 'En tu otro dispositivo: Ajustes → Tu llave → Ver → Mostrar QR.', other: 'Ese QR no es una llave de Tiempo.' },
+};
+
+/** mode: 'code' (regalo de tiempo) o 'key' (abrir tu reloj en este dispositivo). Lee cualquiera de los dos. */
+async function openScanner(mode = 'code') {
   const d = $('#sheet-scan');
-  $('#scan-msg').textContent = 'Apunta al QR de quien te regala tiempo.';
+  $('#sc-title').textContent = SCAN_TEXT[mode].title;
+  $('#scan-msg').textContent = SCAN_TEXT[mode].hint;
   $('.viewfinder').classList.remove('hit');
   openSheet(d);
   try {
     const stop = await startScan($('#scan-video'), {
-      onCode: (code) => {
+      onFound: ({ kind, value }) => {
         stopScan = null;
         $('.viewfinder').classList.add('hit');
         vibrate(25);
         setTimeout(() => {
           closeSheet(d);
-          claimCode(code);
+          if (kind === 'key') useKey(value);
+          else if (S) claimCode(value);
+          else toast('Primero abre o empieza tu reloj; luego recibe el tiempo.');
         }, 250);
       },
-      onOther: () => ($('#scan-msg').textContent = 'Ese QR no es de Tiempo. Busca el de Transferir → Enviar.'),
+      onOther: () => ($('#scan-msg').textContent = SCAN_TEXT[mode].other),
     });
     if (d.open && !d.dataset.closing) stopScan = stop;
     else stop(); // cerró la hoja mientras pedía permiso
@@ -1387,6 +1396,7 @@ function openSettings(focusLink = false) {
   $('#foot').textContent = `Tiempo · ${VERSION}`;
   renderInstall();
   renderPush();
+  $('#btn-scan-key').hidden = !canScan();
   openSheet($('#sheet-settings'));
   if (focusLink) setTimeout(() => $('#link-input').focus(), 380);
 }
@@ -1403,6 +1413,8 @@ function openKeySheet(welcome = false) {
   $('#key-full').textContent = saved.token || '';
   $('#k-title').textContent = welcome ? 'Esta es tu llave' : 'Tu llave';
   $('#k-done').textContent = welcome ? 'Ya la guardé' : 'Listo';
+  $('#key-qr').hidden = true; // escondido hasta que lo pida: que nadie lo fotografíe sin querer
+  $('#k-qr').hidden = false;
   resetCopyButton();
   openSheet($('#sheet-key'));
 }
@@ -1473,10 +1485,37 @@ async function saveName(e) {
   }
 }
 
-async function linkKey(e) {
+async function rotateKey() {
+  closeSheet($('#sheet-settings'));
+  const ok = await confirmSheet({
+    title: '¿Cambiar tu llave?',
+    text: 'Te damos una llave nueva para este mismo reloj: tu tiempo no cambia. La vieja deja de servir, así que en tus otros dispositivos tendrás que abrirlo de nuevo con la nueva (escaneando su QR).',
+    ok: 'Cambiar llave',
+  });
+  if (!ok) return;
+  try {
+    const r = await api('POST', '/api/me/key');
+    saved.token = r.token; // la vieja ya no sirve: no se guarda
+    saved.keySaved = false;
+    apply(r.state);
+    persist();
+    syncPush();
+    openKeySheet(false);
+    $('#k-title').textContent = 'Tu llave nueva';
+    toast('Llave cambiada. Guárdala: la anterior ya no sirve.');
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function linkKey(e) {
   e.preventDefault();
+  useKey($('#link-input').value.trim());
+}
+
+/** Abre en este dispositivo el reloj de esa llave (pegada o escaneada). La llave actual nunca se pierde. */
+async function useKey(key) {
   const input = $('#link-input');
-  const key = input.value.trim();
   if (!/^tk_[\w-]{16,}$/.test(key)) return toast('Esa llave no es válida');
   if (key === saved.token) return toast('Ya estás usando esa llave');
   closeSheet($('#sheet-settings'));
@@ -1636,7 +1675,8 @@ $('#sh-recv').addEventListener('submit', (e) => {
   claimCode($('#sh-input').value);
 });
 $('#sheet-share').addEventListener('close', () => clearTimeout(pollTimer));
-$('#sh-scan').addEventListener('click', openScanner);
+$('#sh-scan').addEventListener('click', () => openScanner('code'));
+$('#btn-scan-key').addEventListener('click', () => openScanner('key'));
 $('#scan-cancel').addEventListener('click', () => closeSheet($('#sheet-scan')));
 $('#sheet-scan').addEventListener('close', closeScanner); // la cámara se apaga siempre al cerrar
 document.addEventListener('visibilitychange', () => {
@@ -1658,6 +1698,13 @@ $('#btn-show-key').addEventListener('click', () => {
   setTimeout(() => openKeySheet(false), 240);
 });
 $('#k-copy').addEventListener('click', copyKey);
+$('#k-qr').addEventListener('click', () => {
+  if (!saved.token) return;
+  $('#key-qr-img').innerHTML = qrSvg(saved.token);
+  $('#key-qr').hidden = false;
+  $('#k-qr').hidden = true;
+});
+$('#sheet-key').addEventListener('close', () => $('#key-qr-img').replaceChildren());
 $('#k-done').addEventListener('click', keyDone);
 $('#sheet-key').addEventListener('close', keyClosed);
 $('#name-form').addEventListener('submit', saveName);
@@ -1667,6 +1714,7 @@ $('#intro-name').addEventListener('keydown', (e) => {
 });
 $('#link-form').addEventListener('submit', linkKey);
 $('#btn-reset').addEventListener('click', resetLife);
+$('#btn-rotate').addEventListener('click', rotateKey);
 $('#toast-act').addEventListener('click', () => {
   const a = toastAction;
   toastAction = null;

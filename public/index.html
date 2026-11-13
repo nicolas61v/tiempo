@@ -239,8 +239,13 @@
           <div><p class="row-t">Tu llave</p><p class="row-s">Es tu identificador: abre este reloj en otro dispositivo. No la compartas.</p><p class="key" id="key-text"></p></div>
           <button class="pill" id="btn-show-key" type="button">Ver</button>
         </div>
+        <div class="row needs-session">
+          <div><p class="row-t">Cambiar tu llave</p><p class="row-s">Si alguien más la vio. Tu reloj queda igual; la llave vieja deja de servir en todos lados.</p></div>
+          <button class="pill" id="btn-rotate" type="button">Cambiar</button>
+        </div>
         <form class="row link-row" id="link-form">
-          <input class="field" id="link-input" placeholder="Pegar una llave" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go">
+          <input class="field" id="link-input" placeholder="Pegar una llave" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Pegar una llave">
+          <button class="pill icon-pill" id="btn-scan-key" type="button" aria-label="Escanear el QR de una llave" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg></button>
           <button class="pill" type="submit">Usar</button>
         </form>
         <div class="row needs-session">
@@ -260,6 +265,11 @@
       <h2 class="sheet-title" id="k-title">Esta es tu llave</h2>
       <p class="cf-text">Es tu <b>identificador</b> en Tiempo: con ella abres tu reloj en otro celular o lo recuperas si borras la app. No hay contraseña, así que <b>si la pierdes, pierdes tu reloj</b>. No se la muestres a nadie.</p>
       <p class="key-box" id="key-full"></p>
+      <div class="key-qr" id="key-qr" hidden>
+        <div class="qr" id="key-qr-img"></div>
+        <p class="row-s center">En tu otro celular, abre Tiempo → Ajustes → <b>escanear llave</b> (junto a «Pegar una llave»). Muéstralo solo en tus dispositivos.</p>
+      </div>
+      <button class="btn btn-spend" id="k-qr" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg>Mostrar QR</button>
       <button class="btn btn-spend" id="k-copy" type="button">Copiar llave</button>
       <button class="btn btn-earn" id="k-done" type="button">Ya la guardé</button>
     </div>

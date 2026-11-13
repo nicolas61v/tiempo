@@ -401,7 +401,12 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 }
 .pill:disabled { opacity: 0.35; }
 .pill-danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
-.link-row .field { height: 42px; }
+.link-row .field { height: 42px; min-width: 0; }
+.link-row { gap: 8px; }
+.icon-pill { display: inline-grid; place-items: center; width: 42px; padding: 0; }
+.icon-pill svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.key-qr { display: flex; flex-direction: column; gap: 12px; }
+.key-qr b { color: var(--ink); font-weight: 600; }
 .remind-row { flex-direction: column; align-items: stretch; gap: 12px; }
 .name-row { align-items: flex-end; }
 .name-row .grow { flex: 1; min-width: 0; }

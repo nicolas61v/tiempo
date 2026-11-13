@@ -35,6 +35,20 @@ test('nace con una semana exacta', () => {
   assert.equal(state.lifeNo, 1);
 });
 
+test('cambiar la llave: la nueva abre el mismo reloj, la vieja ya no, y el tiempo no cambia', () => {
+  const { store, token, id, state } = setup();
+  add(store, id, 'ingreso', 100_000, 'Venta');
+  const before = store.state(id);
+  const r = store.rotateToken(id);
+  assert.match(r.token, /^tk_[\w-]{24}$/);
+  assert.notEqual(r.token, token);
+  assert.equal(store.auth(token), null);
+  assert.equal(store.auth(r.token).id, id);
+  assert.equal(r.state.expiresAt, before.expiresAt);
+  assert.equal(r.state.bornAt, state.bornAt);
+  assert.deepEqual(r.state.ledger, before.ledger);
+});
+
 test('la llave autentica; una falsa no', () => {
   const { store, token, id } = setup();
   assert.equal(store.auth(token).id, id);
@@ -272,7 +286,7 @@ test('migración v6: borra nombres que son una llave, sin tocar el reloj', () =>
   const expires = Date.UTC(2026, 10, 20);
   raw
     .prepare('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname) VALUES (?, ?, 1, 1, 1, ?, ?)')
-    .run('u1', createHash('sha256').update(token).digest('base64url'), expires, 'tk_GhI2zUEzLSCwRHqbj8MPLoiL');
+    .run('u1', createHash('sha256').update(token).digest('base64url'), expires, 'tk_PRUEBAprueba0000000000xx');
   raw.close();
 
   const store = openStore({ dir, minWage: WAGE });
@@ -293,8 +307,8 @@ test('nombre o apodo: opcional, máximo 32 caracteres, limpio y editable', () =>
   assert.equal(store.setNickname(id, 'x'.repeat(40)).state.nickname, 'x'.repeat(32));
   assert.equal(store.setNickname(id, '⏳'.repeat(40)).state.nickname, '⏳'.repeat(32)); // un emoji = un carácter
   assert.equal(store.setNickname(id, 'Ana\u202Eloc\u0007\u200B').state.nickname, 'Analoc'); // sin trucos invisibles
-  assert.equal(store.setNickname(id, 'tk_GhI2zUEzLSCwRHqbj8MPLoiL').state.nickname, ''); // pegó su llave en el nombre
-  assert.equal(store.setNickname(id, 'Pipe tk_GhI2zUEzLSCwRHqbj8MPLoiL').state.nickname, 'Pipe');
+  assert.equal(store.setNickname(id, 'tk_PRUEBAprueba0000000000xx').state.nickname, ''); // pegó su llave en el nombre
+  assert.equal(store.setNickname(id, 'Pipe tk_PRUEBAprueba0000000000xx').state.nickname, 'Pipe');
   assert.equal(store.setNickname(id, '').state.nickname, '');
   assert.equal(store.setNickname(id, 42).state.nickname, '');
   assert.equal(store.createUser().state.nickname, '');
