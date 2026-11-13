@@ -185,11 +185,43 @@ function renderIntro() {
   const gift = $('#gift');
   gift.hidden = !giftCode;
   gift.textContent = 'Alguien te está regalando tiempo. Empieza tu reloj para recibirlo.';
+  $('#recover').hidden = !saved.oldKeys?.length;
+}
+
+/* ───────── las llaves nunca se borran solas ───────── */
+
+/** Guarda una llave que deja de usarse (máx. 5): así ningún error ni cambio de llave hace perder un reloj. */
+function rememberKey(key) {
+  if (!key) return;
+  saved.oldKeys = [key, ...(saved.oldKeys || []).filter((k) => k !== key)].slice(0, 5);
+}
+
+async function recoverClock() {
+  const btn = $('#btn-recover');
+  btn.disabled = true;
+  for (const key of saved.oldKeys || []) {
+    saved.token = key;
+    try {
+      const state = await api('GET', '/api/state');
+      saved.oldKeys = saved.oldKeys.filter((k) => k !== key);
+      apply(state);
+      toast('Recuperamos tu reloj.');
+      btn.disabled = false;
+      return;
+    } catch (err) {
+      saved.token = null;
+      if (err.offline) break;
+    }
+  }
+  persist();
+  btn.disabled = false;
+  toast('Todavía no aparece. Intenta en unos minutos o pega tu llave en Ajustes.');
 }
 
 function render() {
   if (!S || !saved.token) return renderIntro();
   $('#gift').hidden = true;
+  $('#recover').hidden = true; // el aviso de recuperar solo tiene sentido en la pantalla de inicio
   $('#life').textContent = S.nickname ? `${S.nickname} · Vida ${S.lifeNo}` : `Vida ${S.lifeNo}`;
   $('#btn-rebirth').textContent = `Renacer con ${fmtLong(S.initialSeconds)}`;
   lastMinute = -1;
@@ -1109,13 +1141,13 @@ async function refresh() {
     return true;
   } catch (err) {
     if (err.status === 401) {
-      // La llave ya no existe en el servidor (base reiniciada o llave inválida).
+      // El servidor no reconoce la llave. NO se borra: se guarda para reintentar (p. ej. tras un deploy fallido).
+      rememberKey(saved.token);
       saved.token = null;
       S = null;
       closeDay();
       persist();
       renderIntro();
-      toast('No encontramos tu reloj. Empieza uno nuevo o usa tu llave.');
     } else if (!err.offline) toast(err.message);
     return false;
   }
@@ -1314,7 +1346,7 @@ async function linkKey(e) {
   if (saved.token) {
     const ok = await confirmSheet({
       title: '¿Usar otra llave?',
-      text: 'Este dispositivo mostrará ese reloj. Si no guardaste tu llave actual, perderás acceso a este.',
+      text: 'Este dispositivo mostrará ese reloj. Tu llave actual queda guardada aquí por si quieres volver.',
       ok: 'Cambiar',
     });
     if (!ok) return;
@@ -1323,6 +1355,9 @@ async function linkKey(e) {
   saved.token = key;
   try {
     apply(await api('GET', '/api/state'));
+    rememberKey(prev); // la llave anterior queda guardada: cambiar de llave tampoco hace perder un reloj
+    saved.oldKeys = (saved.oldKeys || []).filter((k) => k !== key);
+    persist();
     input.value = '';
     closeDay();
     shareCode = null;
@@ -1364,6 +1399,7 @@ function registerSW() {
 /* ───────── eventos ───────── */
 
 $('#btn-start').addEventListener('click', start);
+$('#btn-recover').addEventListener('click', recoverClock);
 $('#btn-have-key').addEventListener('click', () => openSettings(true));
 $('#btn-day').addEventListener('click', openDay);
 $('#btn-money').addEventListener('click', () => openTx('earn'));

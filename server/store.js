@@ -166,6 +166,22 @@ function newCode() {
 }
 export const normalizeCode = (raw) => String(raw ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+/**
+ * Copia completa y consistente de la base (VACUUM INTO) antes de migrar.
+ * Si una actualización saliera mal, los relojes se restauran desde aquí. Se guardan las 3 más recientes.
+ */
+function backup(db, dir, version) {
+  const file = path.join(dir, `backup-v${version}-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+  db.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+  const copies = fs
+    .readdirSync(dir)
+    .filter((f) => /^backup-v\d+-.+\.db$/.test(f))
+    .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.t - a.t);
+  for (const { f } of copies.slice(3)) fs.rmSync(path.join(dir, f), { force: true });
+  return file;
+}
+
 function migrate(db) {
   const { user_version: current } = db.prepare('PRAGMA user_version').get();
   for (let v = current; v < MIGRATIONS.length; v++) {
@@ -189,6 +205,9 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   }
   const db = new DatabaseSync(file);
   db.exec(PRAGMAS);
+  // Base existente con migraciones pendientes → copia de seguridad primero. Las migraciones solo agregan, nunca borran.
+  const { user_version: version } = db.prepare('PRAGMA user_version').get();
+  const backupFile = dir && version > 0 && version < MIGRATIONS.length ? backup(db, dir, version) : null;
   migrate(db);
   const initialMs = initialSeconds * 1000;
 
@@ -686,6 +705,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     },
     setMeta: (key, value) => q.setMeta.run(key, JSON.stringify(value)),
 
+    backupFile,
     close: () => db.close(),
   };
 }

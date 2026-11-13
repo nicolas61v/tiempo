@@ -1,5 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { openStore, alertBand } from '../server/store.js';
 import { buildContent } from '../server/judge.js';
 import { lifeSeconds } from '../public/economy.js';
@@ -188,6 +192,51 @@ test('compartir: cancelar devuelve y los códigos vencidos vuelven solos', () =>
   assert.equal(store.transferStatus(id, a.code).status, 'devuelto');
   assert.throws(() => store.createTransfer(id, 7 * 86_400), { code: 'insufficient' }); // no se regala todo
   assert.throws(() => store.claimTransfer(id, '12'), { code: 'code' });
+});
+
+/* ───────── actualizaciones: nunca tocan los relojes ───────── */
+
+const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tiempo-test-'));
+
+test('un deploy (reabrir la base con el código nuevo) deja cada reloj exactamente igual', () => {
+  const dir = tmpDir();
+  const t = Date.UTC(2026, 10, 12, 12);
+  const a = openStore({ dir, minWage: WAGE, now: () => t });
+  const { token } = a.createUser({ nickname: 'Nico' });
+  a.addTx(a.auth(token).id, { category: 'ingreso', amount: 100_000, note: 'Venta' });
+  const before = a.state(a.auth(token).id);
+  a.close();
+
+  const b = openStore({ dir, minWage: WAGE, now: () => t });
+  const after = b.state(b.auth(token).id); // la misma llave sigue funcionando
+  assert.deepEqual(
+    { expiresAt: after.expiresAt, lifeNo: after.lifeNo, bornAt: after.bornAt, nickname: after.nickname, ledger: after.ledger },
+    { expiresAt: before.expiresAt, lifeNo: before.lifeNo, bornAt: before.bornAt, nickname: before.nickname, ledger: before.ledger },
+  );
+  assert.equal(b.backupFile, null); // sin migraciones pendientes no hace falta copia
+  b.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('si hay migración pendiente, primero se guarda una copia completa de la base', () => {
+  const dir = tmpDir();
+  const a = openStore({ dir, minWage: WAGE });
+  const { token } = a.createUser();
+  const expires = a.state(a.auth(token).id).expiresAt;
+  a.close();
+  // Simula una base de la versión anterior (antes de existir "nickname")
+  const raw = new DatabaseSync(path.join(dir, 'tiempo.db'));
+  raw.exec('ALTER TABLE users DROP COLUMN nickname; PRAGMA user_version = 3;');
+  raw.close();
+
+  const b = openStore({ dir, minWage: WAGE });
+  assert.ok(b.backupFile && fs.existsSync(b.backupFile));
+  assert.equal(b.state(b.auth(token).id).expiresAt, expires); // migrado sin tocar el reloj
+  b.close();
+  const copy = new DatabaseSync(b.backupFile, { readOnly: true });
+  assert.equal(copy.prepare('SELECT expires_at FROM users').get().expires_at, expires); // la copia tiene el reloj
+  copy.close();
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 /* ───────── nombre o apodo ───────── */

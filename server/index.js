@@ -17,6 +17,7 @@ if (config.onRailway && !config.hasVolume) {
 }
 
 const store = openStore({ dir: config.dataDir, initialSeconds: config.initialSeconds, minWage: config.minWage });
+if (store.backupFile) log.info(`copia de seguridad antes de migrar: ${store.backupFile}`);
 const push = createPush(store, { ...config.vapid, log });
 const judge = createJudge({ log });
 if (!judge.enabled) log.warn('⚠ Guardián apagado: define ANTHROPIC_API_KEY para activar "Mi día".');

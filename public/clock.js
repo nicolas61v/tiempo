@@ -57,9 +57,8 @@ export class Clock {
     const minute = Math.floor(ms / 60_000);
     if (minute !== this.minute) {
       this.minute = minute;
-      const parts = [[t.y, 'años'], [t.mo, 'meses'], [t.w, 'semanas'], [t.d, 'días'], [t.h, 'horas'], [t.m, 'minutos']]
-        .filter(([v]) => v)
-        .map(([v, u]) => `${v} ${u}`);
+      const units = [[t.y, 'año', 'años'], [t.mo, 'mes', 'meses'], [t.w, 'semana', 'semanas'], [t.d, 'día', 'días'], [t.h, 'hora', 'horas'], [t.m, 'minuto', 'minutos']];
+      const parts = units.filter(([v]) => v).map(([v, one, many]) => `${v} ${v === 1 ? one : many}`);
       this.host.setAttribute('aria-label', parts.length ? `Quedan ${parts.join(', ')}` : 'Tiempo agotado');
     }
   }
