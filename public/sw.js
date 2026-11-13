@@ -7,6 +7,7 @@ const SHELL = [
   '/app.js',
   '/clock.js',
   '/economy.js',
+  '/scan.js',
   '/vendor/qrcode.mjs',
   '/fonts/inter-latin-200-normal.woff2',
   '/fonts/inter-latin-300-normal.woff2',

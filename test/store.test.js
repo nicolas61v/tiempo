@@ -182,6 +182,27 @@ test('compartir: el tiempo sale al crear el código y llega al reclamarlo', () =
   assert.throws(() => store.undoTx(id, s1.ledger[0].id), { code: 'system' });
 });
 
+test('compartir: en el historial de cada uno queda con quién fue', () => {
+  const { store, id } = setup();
+  store.setNickname(id, 'Nico');
+  const pipe = store.createUser({ nickname: 'Pipe' });
+  const id2 = store.auth(pipe.token).id;
+  const { transfer } = store.createTransfer(id, 3600);
+  assert.equal(store.state(id).ledger[0].note, `Código ${transfer.code}`); // mientras nadie lo reclama
+  const r = store.claimTransfer(id2, transfer.code);
+  assert.equal(r.fromName, 'Nico');
+  const sent = store.state(id).ledger[0];
+  const got = r.state.ledger[0];
+  assert.deepEqual([sent.note, sent.category, sent.seconds], ['Para Pipe', 'envio', -3600]);
+  assert.deepEqual([got.note, got.category, got.seconds], ['De Nico', 'recibo', 3600]);
+  assert.equal(store.transferStatus(id, transfer.code).toName, 'Pipe');
+
+  const anon = store.createUser(); // sin nombre
+  const t2 = store.createTransfer(id2, 600).transfer;
+  store.claimTransfer(store.auth(anon.token).id, t2.code);
+  assert.equal(store.state(id2).ledger[0].note, 'Para alguien');
+});
+
 test('compartir: cancelar devuelve y los códigos vencidos vuelven solos', () => {
   const { store, id, state, now, advance } = setup();
   const a = store.createTransfer(id, 3600).transfer;
@@ -397,6 +418,36 @@ test('migración v7: recordatorio cada 12 h por defecto, sin tocar el reloj', ()
   assert.equal(s.expiresAt, expires);
   assert.equal(s.nickname, 'Nico');
   assert.equal(s.remindEvery, 43_200);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('migración v8: transferencias pasadas con nombre en el historial, sin tocar relojes ni montos', () => {
+  const dir = tmpDir();
+  const raw = new DatabaseSync(path.join(dir, 'tiempo.db'));
+  for (const sql of MIGRATIONS.slice(0, 7)) raw.exec(sql); // la base como estaba en v7
+  raw.exec('PRAGMA user_version = 7');
+  const tok = (n) => `tk_${n}_00000000000000000000000`;
+  const hash = (t) => createHash('sha256').update(t).digest('base64url');
+  const user = raw.prepare('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname) VALUES (?, ?, 1, 1, 1, ?, ?)');
+  user.run('nico', hash(tok('nico')), 5_000_000, 'Nico');
+  user.run('pipe', hash(tok('pipe')), 6_000_000, ''); // sin nombre
+  const tx = raw.prepare('INSERT INTO ledger (user_id, life_no, at, seconds, note, category, amount, status) VALUES (?, 1, 2, ?, ?, ?, ?, ?)');
+  const sent = tx.run('nico', -3600, 'Código ABC234', 'envio', 3600, 'enviado').lastInsertRowid;
+  tx.run('pipe', 3600, 'Código ABC234', 'recibo', 3600, 'recibido');
+  const pending = tx.run('nico', -600, 'Código XYZ789', 'envio', 600, 'enviado').lastInsertRowid;
+  const tr = raw.prepare('INSERT INTO transfers (code, from_user, to_user, seconds, created_at, expires_at, ledger_id, status) VALUES (?, ?, ?, ?, 1, 9, ?, ?)');
+  tr.run('ABC234', 'nico', 'pipe', 3600, sent, 'entregado');
+  tr.run('XYZ789', 'nico', null, 600, pending, 'pendiente');
+  raw.close();
+
+  const store = openStore({ dir, minWage: WAGE });
+  const nico = store.state(store.auth(tok('nico')).id);
+  const pipe = store.state(store.auth(tok('pipe')).id);
+  assert.deepEqual(nico.ledger.map((t) => [t.note, t.seconds]), [['Código XYZ789', -600], ['Para alguien', -3600]]);
+  assert.deepEqual(pipe.ledger.map((t) => [t.note, t.seconds]), [['De Nico', 3600]]);
+  assert.equal(nico.expiresAt, 5_000_000);
+  assert.equal(pipe.expiresAt, 6_000_000);
   store.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });

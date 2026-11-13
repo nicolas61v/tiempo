@@ -159,10 +159,27 @@
         <button class="link" id="sh-cancel" type="button">Cancelar y recuperar mi tiempo</button>
       </section>
       <form class="pane" id="sh-recv" hidden>
+        <button class="btn btn-earn" id="sh-scan" type="button" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg>Escanear QR
+        </button>
+        <p class="row-s center or" id="sh-or" hidden>o escribe el código</p>
         <input class="field code-input" id="sh-input" maxlength="7" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-label="Código de tiempo">
-        <button class="btn btn-earn" type="submit">Recibir tiempo</button>
-        <p class="row-s center">O escanea el QR con la cámara de tu celular.</p>
+        <button class="btn btn-spend" id="sh-recv-btn" type="submit">Recibir tiempo</button>
       </form>
+    </div>
+  </dialog>
+
+  <!-- Escanear un QR de tiempo con la cámara, dentro de la app -->
+  <dialog class="sheet" id="sheet-scan" aria-labelledby="sc-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="sc-title">Escanear QR</h2>
+      <div class="viewfinder">
+        <video id="scan-video" playsinline muted autoplay></video>
+        <span class="aim" aria-hidden="true"></span>
+      </div>
+      <p class="row-s center" id="scan-msg" role="status">Apunta al QR de quien te regala tiempo.</p>
+      <button class="btn btn-spend" id="scan-cancel" type="button">Cancelar</button>
     </div>
   </dialog>
 

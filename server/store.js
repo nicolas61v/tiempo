@@ -182,6 +182,17 @@ export const MIGRATIONS = [
   ALTER TABLE users ADD COLUMN reminded_at INTEGER NOT NULL DEFAULT 0;       -- último recordatorio enviado
   ALTER TABLE users ADD COLUMN tz TEXT NOT NULL DEFAULT '';                  -- zona horaria del teléfono ('' = Colombia)
   `,
+  // v8 · historial con nombres: las transferencias ya entregadas dicen "Para Pipe" / "De Nico" en vez de
+  // "Código ABC123". Solo cambia el texto de esas filas: no toca relojes ni montos.
+  `
+  UPDATE ledger SET note = 'Para ' || COALESCE(NULLIF(
+      (SELECT u.nickname FROM transfers t JOIN users u ON u.id = t.to_user WHERE t.ledger_id = ledger.id), ''), 'alguien')
+  WHERE category = 'envio' AND id IN (SELECT ledger_id FROM transfers WHERE status = 'entregado');
+  UPDATE ledger SET note = 'De ' || COALESCE(NULLIF(
+      (SELECT u.nickname FROM transfers t JOIN users u ON u.id = t.from_user
+       WHERE t.to_user = ledger.user_id AND 'Código ' || t.code = ledger.note), ''), 'alguien')
+  WHERE category = 'recibo' AND note LIKE 'Código %';
+  `,
 ];
 
 /** Identificador anónimo que genera la app en cada teléfono. Si no tiene la forma esperada, se ignora. */
@@ -304,6 +315,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     usedSince: st('SELECT COALESCE(SUM(amount), 0) AS used FROM ledger WHERE user_id = ? AND category = ? AND at > ?'),
     txById: st('SELECT * FROM ledger WHERE id = ? AND user_id = ?'),
     delTx: st('DELETE FROM ledger WHERE id = ?'),
+    setNote: st('UPDATE ledger SET note = ? WHERE id = ?'),
     ledger: st(`SELECT id, at, seconds, note, category, amount, status FROM ledger
                 WHERE user_id = ? AND life_no = ? ORDER BY id DESC LIMIT 200`),
     totals: st(`
@@ -730,11 +742,14 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         }
         if (tr.from_user === u.id) return { error: new AppError(409, 'own', 'Ese código es tuyo') };
         if (u.expires_at <= t) return { error: new AppError(409, 'dead', 'Tu reloj está en cero: renace primero') };
-        q.addTx.run(u.id, u.life_no, t, tr.seconds, `Código ${code}`, 'recibo', tr.seconds, 'recibido');
+        // En el historial de cada uno queda con quién fue: "De Nico" / "Para Pipe".
+        const fromName = q.byId.get(tr.from_user)?.nickname || '';
+        q.addTx.run(u.id, u.life_no, t, tr.seconds, `De ${fromName || 'alguien'}`, 'recibo', tr.seconds, 'recibido');
+        q.setNote.run(`Para ${u.nickname || 'alguien'}`, tr.ledger_id);
         const expires = u.expires_at + tr.seconds * 1000;
         q.setExpiry.run(expires, alertBand(expires - t), u.id);
         q.trSet.run('entregado', u.id, t, code);
-        return { seconds: tr.seconds, fromUser: tr.from_user, state: snapshot(must(id)) };
+        return { seconds: tr.seconds, fromUser: tr.from_user, fromName, toName: u.nickname, state: snapshot(must(id)) };
       });
       if (result.error) throw result.error;
       return result;
@@ -753,7 +768,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     transferStatus(id, rawCode) {
       const tr = q.trGet.get(normalizeCode(rawCode));
       if (!tr || tr.from_user !== id) throw new AppError(404, 'code', 'Ese código no existe');
-      return { code: tr.code, status: tr.status, seconds: tr.seconds, expiresAt: tr.expires_at };
+      const toName = tr.to_user ? q.byId.get(tr.to_user)?.nickname || '' : '';
+      return { code: tr.code, status: tr.status, seconds: tr.seconds, expiresAt: tr.expires_at, toName };
     },
 
     expireTransfers(t = now()) {

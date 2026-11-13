@@ -1,6 +1,7 @@
 import { Clock } from './clock.js';
 import { CATEGORIES, lifeSeconds, dayValue } from './economy.js';
 import qrcode from './vendor/qrcode.mjs';
+import { canScan, startScan } from './scan.js';
 
 const $ = (sel) => document.querySelector(sel);
 const DAY = 86_400, HOUR = 3_600, MIN = 60, WEEK = 7 * DAY;
@@ -205,7 +206,10 @@ function renderIntro() {
   $('#intro-initial').textContent = fmtLong(INITIAL);
   const gift = $('#gift');
   gift.hidden = !giftCode;
-  gift.textContent = 'Alguien te está regalando tiempo. Empieza tu reloj para recibirlo.';
+  // En iPhone, el navegador y la app instalada guardan relojes distintos: que no cree uno nuevo sin querer.
+  gift.textContent = standalone
+    ? 'Alguien te está regalando tiempo. Empieza tu reloj para recibirlo.'
+    : `Te están regalando tiempo (código ${giftCode}). Si ya tienes Tiempo instalado, ábrelo y en Compartir → Recibir escanea el QR o escribe el código. Si es tu primera vez, empieza aquí.`;
   $('#recover').hidden = !saved.oldKeys?.length;
 }
 
@@ -969,6 +973,7 @@ function renderShare() {
   $('#sh-send').hidden = !sending || Boolean(shareCode);
   $('#sh-code').hidden = !sending || !shareCode;
   $('#sh-recv').hidden = sending;
+  $('#sh-scan').hidden = $('#sh-or').hidden = !canScan();
 
   if (sending && shareCode) return renderCode();
   if (!sending) return;
@@ -1027,7 +1032,7 @@ async function checkCode() {
     if (st.status === 'entregado') {
       endCode();
       vibrate([20, 60, 20]);
-      toast(`¡Entregado! Alguien recibió ${fmtDur(st.seconds, 3)} de tu tiempo.`);
+      toast(`¡Entregado! ${st.toName || 'Alguien'} recibió ${fmtDur(st.seconds, 3)} de tu tiempo.`);
       refresh();
     } else if (st.status === 'devuelto') {
       endCode();
@@ -1088,10 +1093,48 @@ async function claimCode(raw) {
     apply(r.state);
     clock.flash('gain');
     vibrate([20, 60, 20]);
-    toast(`+${fmtDur(r.seconds, 3)}: alguien te regaló tiempo.`);
+    toast(`+${fmtDur(r.seconds, 3)}: ${r.fromName || 'alguien'} te regaló tiempo.`);
   } catch (err) {
     toast(err.message);
   }
+}
+
+/* ───────── escanear QR dentro de la app ───────── */
+
+let stopScan = null;
+
+async function openScanner() {
+  const d = $('#sheet-scan');
+  $('#scan-msg').textContent = 'Apunta al QR de quien te regala tiempo.';
+  $('.viewfinder').classList.remove('hit');
+  openSheet(d);
+  try {
+    const stop = await startScan($('#scan-video'), {
+      onCode: (code) => {
+        stopScan = null;
+        $('.viewfinder').classList.add('hit');
+        vibrate(25);
+        setTimeout(() => {
+          closeSheet(d);
+          claimCode(code);
+        }, 250);
+      },
+      onOther: () => ($('#scan-msg').textContent = 'Ese QR no es de Tiempo. Busca el de Compartir → Enviar.'),
+    });
+    if (d.open && !d.dataset.closing) stopScan = stop;
+    else stop(); // cerró la hoja mientras pedía permiso
+  } catch (err) {
+    closeSheet(d);
+    toast(
+      err?.name === 'NotAllowedError'
+        ? 'Sin permiso para la cámara: actívalo en los ajustes del celular o escribe el código.'
+        : 'No se pudo abrir la cámara. Escribe el código.',
+    );
+  }
+}
+function closeScanner() {
+  stopScan?.();
+  stopScan = null;
 }
 
 /* ───────── historial ───────── */
@@ -1159,10 +1202,22 @@ async function start() {
   }
 }
 
-function claimGift() {
+/** ask: abrió un link de regalo en el navegador con un reloj ya guardado; puede que el suyo esté en la app. */
+async function claimGift({ ask = false } = {}) {
   const code = giftCode;
   giftCode = null;
-  setTimeout(() => claimCode(code), 600);
+  await new Promise((r) => setTimeout(r, 600));
+  if (ask && !standalone) {
+    const name = S?.nickname ? `${S.nickname} · Vida ${S.lifeNo}` : `Vida ${S?.lifeNo ?? 1}`;
+    const ok = await confirmSheet({
+      title: '¿Recibir en este reloj?',
+      text: `Se sumará al reloj de este navegador (${name}). Si usas Tiempo instalado como app, mejor ábrela y en Compartir → Recibir escanea el QR o escribe el código ${code}.`,
+      ok: 'Recibir aquí',
+      danger: false,
+    });
+    if (!ok) return toast(`Tu código: ${code}`);
+  }
+  claimCode(code);
 }
 
 async function rebirth(force = false) {
@@ -1581,6 +1636,12 @@ $('#sh-recv').addEventListener('submit', (e) => {
   claimCode($('#sh-input').value);
 });
 $('#sheet-share').addEventListener('close', () => clearTimeout(pollTimer));
+$('#sh-scan').addEventListener('click', openScanner);
+$('#scan-cancel').addEventListener('click', () => closeSheet($('#sheet-scan')));
+$('#sheet-scan').addEventListener('close', closeScanner); // la cámara se apaga siempre al cerrar
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && $('#sheet-scan').open) closeSheet($('#sheet-scan'));
+});
 
 // Ajustes
 $('#btn-push').addEventListener('click', togglePush);
@@ -1629,7 +1690,7 @@ navigator.storage?.persist?.().catch(() => {});
 if (saved.token) {
   refresh().then((ok) => {
     syncPush();
-    if (ok && giftCode) claimGift();
+    if (ok && giftCode) claimGift({ ask: true });
     else if (ok && dayOnLoad) openDayFromReminder();
     dayOnLoad = false;
   });

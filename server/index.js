@@ -44,7 +44,7 @@ const SECURITY = {
     "manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()', // micrófono: dictado en "Mi día"
+  'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=()', // cámara: escanear QR · micrófono: dictado
   ...(config.onRailway && { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' }),
 };
 
@@ -205,9 +205,9 @@ async function api(req, res, p) {
     const b = await readJson(req);
     const r = store.claimTransfer(id, b.code);
     push
-      .sendToUser(r.fromUser, { title: 'Tiempo entregado', body: `Alguien recibió ${fmtSeconds(r.seconds)} de tu tiempo.` })
+      .sendToUser(r.fromUser, { title: 'Tiempo entregado', body: `${r.toName || 'Alguien'} recibió ${fmtSeconds(r.seconds)} de tu tiempo.` })
       .catch(() => {});
-    return send(res, 200, { seconds: r.seconds, state: r.state });
+    return send(res, 200, { seconds: r.seconds, fromName: r.fromName, state: r.state });
   }
   const transfer = /^\/api\/transfer\/([A-Za-z0-9]{6})$/.exec(p);
   if (transfer && m === 'GET') return send(res, 200, store.transferStatus(id, transfer[1]));
