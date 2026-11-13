@@ -68,25 +68,29 @@ self.addEventListener('push', (e) => {
   try {
     data = e.data?.json() ?? {};
   } catch {}
+  const remind = data.kind === 'remind'; // recordatorio de "Mi día": no reemplaza un aviso del reloj
   e.waitUntil(
     self.registration.showNotification(data.title || 'Tiempo', {
       body: data.body || '',
       icon: '/icons/icon-192.png',
       badge: '/icons/badge-96.png',
-      tag: 'tiempo',
+      tag: remind ? 'recordatorio' : 'tiempo',
       renotify: true,
       vibrate: data.band === 0 ? [300, 120, 300] : [120],
-      data: { url: '/' },
+      data: { url: remind ? '/#dia' : '/' },
     }),
   );
 });
 
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
+  const url = e.notification.data?.url || '/';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       const open = list.find((c) => 'focus' in c);
-      return open ? open.focus() : self.clients.openWindow('/');
+      if (!open) return self.clients.openWindow(url);
+      if (url.endsWith('#dia')) open.postMessage({ open: 'day' }); // la app ya abierta salta a "Mi día"
+      return open.focus();
     }),
   );
 });

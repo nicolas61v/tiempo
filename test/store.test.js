@@ -335,6 +335,72 @@ test('alertas: una por umbral, solo con suscripción, se rearman al ganar', () =
   assert.deepEqual(bands(), []);
 });
 
+/* ───────── recordatorio de "Mi día" ───────── */
+
+test('recordatorio: si en 12 h no le cuentas nada al Guardián te lo recuerda, nunca de noche', () => {
+  const { store, id, advance, now } = setup(); // nace a las 07:00 de Bogotá
+  assert.equal(store.state(id).remindEvery, 43_200); // por defecto, cada 12 h
+  advance(13 * HOUR);
+  assert.deepEqual(store.claimReminders(now()), []); // sin alertas activadas no hay a quién avisar
+
+  store.addSub(id, SUB);
+  const at = (hours) => { advance(hours * HOUR); return store.claimReminders(now()).map((r) => r.userId); };
+  assert.deepEqual(at(0), [id]); // 20:00: 13 h sin contarle nada
+  assert.deepEqual(at(0), []); // uno solo, no uno por barrido
+  assert.deepEqual(at(11.5), []); // 07:30: aún no van 12 h
+  assert.deepEqual(at(0.5), [id]); // 08:00: 12 h y ya es de día
+
+  advance(6 * HOUR); // 14:00: le cuenta su día → la cuenta arranca de nuevo
+  store.openDay(id, { text: 'gym una hora' });
+  assert.deepEqual(at(6), []); // 20:00: 12 h desde el recordatorio, pero solo 6 h desde que le contó
+  assert.deepEqual(at(7), []); // 03:00: 13 h, de noche
+  assert.deepEqual(at(5), [id]); // 08:00
+
+  const before = store.state(id).expiresAt;
+  store.setReminder(id, 0);
+  assert.deepEqual(at(48), []); // apagado
+  assert.equal(store.state(id).expiresAt, before); // recordar nunca toca el reloj
+  assert.throws(() => store.setReminder(id, 3600), { code: 'remind' });
+  assert.throws(() => store.setReminder(id, '43200'), { code: 'remind' });
+});
+
+test('recordatorio: cada 6 h, en la hora del teléfono, y nunca a un reloj en cero', () => {
+  const { store, id, advance, now } = setup(); // 12:00 UTC
+  store.addSub(id, { ...SUB, tz: 'Asia/Tokyo' }); // la zona llega al activar las alertas
+  assert.equal(store.setReminder(id, 21_600, 'Zona/Inventada').state.remindEvery, 21_600); // zona inválida: se ignora
+  const at = (hours) => { advance(hours * HOUR); return store.claimReminders(now()).length; };
+  assert.equal(at(5), 0); // 17:00 UTC = 02:00 en Tokio: aún no van 6 h
+  assert.equal(at(1), 0); // 03:00 en Tokio: de noche
+  assert.equal(at(5), 1); // 08:00 en Tokio
+  assert.equal(at(6), 1); // 14:00
+  assert.equal(at(6), 1); // 20:00
+  assert.equal(at(6), 0); // 02:00
+  advance(7 * DAY); // el reloj llega a cero
+  assert.equal(store.state(id).expiresAt <= now(), true);
+  assert.equal(at(12), 0);
+});
+
+test('migración v7: recordatorio cada 12 h por defecto, sin tocar el reloj', () => {
+  const dir = tmpDir();
+  const raw = new DatabaseSync(path.join(dir, 'tiempo.db'));
+  for (const sql of MIGRATIONS.slice(0, 6)) raw.exec(sql); // la base como estaba en v6
+  raw.exec('PRAGMA user_version = 6');
+  const token = 'tk_hermano_000000000000000000';
+  const expires = Date.UTC(2026, 10, 20, 6, 32, 11);
+  raw
+    .prepare('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname) VALUES (?, ?, 1, 1, 1, ?, ?)')
+    .run('u1', createHash('sha256').update(token).digest('base64url'), expires, 'Nico');
+  raw.close();
+
+  const store = openStore({ dir, minWage: WAGE });
+  const s = store.state(store.auth(token).id);
+  assert.equal(s.expiresAt, expires);
+  assert.equal(s.nickname, 'Nico');
+  assert.equal(s.remindEvery, 43_200);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('el reloj parte en años, meses, semanas y días', () => {
   assert.deepEqual(split(7 * DAY), { y: 0, mo: 0, w: 1, d: 0, h: 0, m: 0, s: 0 });
   assert.deepEqual(split(7 * DAY - 1000), { y: 0, mo: 0, w: 0, d: 6, h: 23, m: 59, s: 59 });

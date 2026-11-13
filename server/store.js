@@ -8,6 +8,11 @@ import { CATEGORIES, lifeSeconds } from '../public/economy.js';
 export const ALERTS = [86_400, 3_600, 600, 0];
 export const VERDICTS = ['aprobado', 'rechazado', 'necesita_prueba', 'no_cuenta'];
 export const MAX_REPLIES = 2;
+/** Recordatorio de contarle el día al Guardián: cada cuánto (segundos) se puede elegir; 0 = nunca. */
+export const REMIND_OPTIONS = [0, 21_600, 43_200, 86_400];
+const QUIET_FROM = 22; // de 22:00 a 8:00, en la hora de la persona, no se recuerda nada
+const QUIET_TO = 8;
+const DEFAULT_TZ = 'America/Bogota';
 const MAX_TX = 10 * 365 * 86_400;
 const MAX_AMOUNT = { money: 10_000_000_000, hours: 24 };
 const NOTE_MAX = 80;
@@ -40,6 +45,26 @@ export function alertBand(remainingMs) {
   let band = null;
   for (const t of ALERTS) if (remainingMs <= t * 1000) band = t;
   return band;
+}
+
+/** Zona horaria IANA válida (la que manda el teléfono) o '' (se usa la de Colombia). */
+export function cleanTz(tz) {
+  if (typeof tz !== 'string' || !tz || tz.length > 64) return '';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return tz;
+  } catch {
+    return '';
+  }
+}
+
+const hourFormats = new Map();
+/** Hora local (0–23) de una persona en el instante t. */
+export function localHour(t, tz) {
+  const zone = tz || DEFAULT_TZ;
+  let f = hourFormats.get(zone);
+  if (!f) hourFormats.set(zone, (f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: 'numeric', hourCycle: 'h23' })));
+  return Number(f.format(t)) % 24;
 }
 
 const hashToken = (token) => createHash('sha256').update(token).digest('base64url');
@@ -150,6 +175,12 @@ export const MIGRATIONS = [
   // v6 · limpieza: nadie debe tener su llave como nombre (se vería en rankings y en /admin). No toca relojes.
   `
   UPDATE users SET nickname = '' WHERE instr(lower(nickname), 'tk_') > 0;
+  `,
+  // v7 · recordatorio de "Mi día" (por defecto cada 12 h, solo a quien tiene alertas). Solo agrega columnas: no toca relojes.
+  `
+  ALTER TABLE users ADD COLUMN remind_every INTEGER NOT NULL DEFAULT 43200;  -- segundos; 0 = no recordar
+  ALTER TABLE users ADD COLUMN reminded_at INTEGER NOT NULL DEFAULT 0;       -- último recordatorio enviado
+  ALTER TABLE users ADD COLUMN tz TEXT NOT NULL DEFAULT '';                  -- zona horaria del teléfono ('' = Colombia)
   `,
 ];
 
@@ -294,6 +325,17 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       WHERE expires_at <= ? AND (alerted IS NULL OR alerted > 0)
         AND EXISTS (SELECT 1 FROM push_subs s WHERE s.user_id = users.id)`),
     setAlerted: st('UPDATE users SET alerted = ? WHERE id = ?'),
+    // Candidatos a recordatorio: vivos, con alertas y sin recordatorio reciente. "last" = lo último entre
+    // el recordatorio anterior, el renacer y la última vez que le contó algo al Guardián.
+    remindDue: st(`
+      SELECT u.id, u.remind_every, u.tz,
+             MAX(u.reminded_at, u.born_at, COALESCE((SELECT MAX(d.created_at) FROM days d WHERE d.user_id = u.id), 0)) AS last
+      FROM users u
+      WHERE u.remind_every > 0 AND u.expires_at > ? AND u.reminded_at <= ? - u.remind_every * 1000
+        AND EXISTS (SELECT 1 FROM push_subs s WHERE s.user_id = u.id)`),
+    setReminded: st('UPDATE users SET reminded_at = ? WHERE id = ?'),
+    setRemind: st('UPDATE users SET remind_every = ?, reminded_at = ?, tz = ? WHERE id = ?'),
+    setTz: st('UPDATE users SET tz = ? WHERE id = ?'),
     getMeta: st('SELECT value FROM meta WHERE key = ?'),
     setMeta: st('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value'),
   };
@@ -333,6 +375,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     return {
       now: now(),
       nickname: u.nickname,
+      remindEvery: u.remind_every,
       lifeNo: u.life_no,
       bornAt: u.born_at,
       expiresAt: u.expires_at,
@@ -451,6 +494,14 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     setNickname(id, nickname) {
       must(id);
       q.setNick.run(cleanNickname(nickname), id);
+      return { state: snapshot(must(id)) };
+    },
+
+    /** Cada cuánto recordarle contar su día (0 = nunca). La cuenta arranca de nuevo desde ahora. */
+    setReminder(id, every, tz) {
+      const u = must(id);
+      if (!REMIND_OPTIONS.includes(every)) throw new AppError(400, 'remind', 'Opción de recordatorio inválida');
+      q.setRemind.run(every, now(), cleanTz(tz) || u.tz, id);
       return { state: snapshot(must(id)) };
     },
 
@@ -721,6 +772,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       }
       q.upsertSub.run(endpoint, id, keys.p256dh, keys.auth, now());
       q.trimSubs.run(id, id);
+      const tz = cleanTz(sub.tz);
+      if (tz) q.setTz.run(tz, id); // para no recordarle nada de noche en su hora
     },
 
     removeSub(id, endpoint) {
@@ -739,6 +792,24 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
           if (band === null || (u.alerted !== null && band >= u.alerted)) continue;
           q.setAlerted.run(band, u.id);
           out.push({ userId: u.id, band, expiresAt: u.expires_at });
+        }
+        return out;
+      });
+    },
+
+    /**
+     * Marca y devuelve los recordatorios de "Mi día" que tocan ahora: a quien lleva su intervalo sin
+     * contarle nada al Guardián (ni recibir recordatorio), solo de día en su hora. Nunca toca relojes.
+     */
+    claimReminders(t = now()) {
+      return tx(() => {
+        const out = [];
+        for (const u of q.remindDue.all(t, t)) {
+          if (t - u.last < u.remind_every * 1000) continue;
+          const hour = localHour(t, u.tz);
+          if (hour >= QUIET_FROM || hour < QUIET_TO) continue; // de noche espera a la mañana
+          q.setReminded.run(t, u.id);
+          out.push({ userId: u.id, hour });
         }
         return out;
       });

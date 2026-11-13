@@ -195,6 +195,15 @@
           <div><p class="row-t">Alertas</p><p class="row-s" id="push-status"></p></div>
           <button class="pill" id="btn-push" type="button">Activar</button>
         </div>
+        <div class="row remind-row needs-session">
+          <div><p class="row-t">Recordarme contar mi día</p><p class="row-s" id="remind-status"></p></div>
+          <div class="seg seg-4" id="remind-seg" role="radiogroup" aria-label="Cada cuánto recordarte contar tu día">
+            <button type="button" role="radio" data-every="0">No</button>
+            <button type="button" role="radio" data-every="21600">6 h</button>
+            <button type="button" role="radio" data-every="43200">12 h</button>
+            <button type="button" role="radio" data-every="86400">24 h</button>
+          </div>
+        </div>
         <div class="row" id="row-install" hidden>
           <div><p class="row-t">Instalar</p><p class="row-s" id="install-hint"></p></div>
           <button class="pill" id="btn-install" type="button">Instalar</button>

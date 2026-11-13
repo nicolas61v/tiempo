@@ -64,6 +64,10 @@ function deviceId() {
   }
 }
 
+// Tocar el recordatorio de "Mi día" abre la app en /#dia: se va directo a contarle al Guardián.
+let dayOnLoad = location.hash === '#dia';
+if (dayOnLoad) history.replaceState(null, '', location.pathname);
+
 // Link de regalo: /r/CÓDIGO (lo abre la cámara del celular al escanear el QR)
 let giftCode = null;
 const deep = /^\/r\/([A-Za-z0-9]{6})\/?$/.exec(location.pathname);
@@ -552,6 +556,11 @@ let pendingMine = null;
 function openDay() {
   renderDay();
   openSheet($('#sheet-day'));
+}
+function openDayFromReminder() {
+  if (document.body.dataset.phase !== 'alive') return;
+  document.querySelectorAll('dialog.sheet[open]').forEach((d) => d.id !== 'sheet-day' && closeSheet(d));
+  setTimeout(openDay, 260);
 }
 function closeDay() {
   day = null;
@@ -1206,7 +1215,45 @@ async function pushStatus() {
   return (await reg?.pushManager.getSubscription()) ? 'on' : 'off';
 }
 
+const userTz = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    return '';
+  }
+};
+const REMIND_TEXT = { 21600: '6 horas', 43200: '12 horas', 86400: 'un día' };
+
+async function renderRemind() {
+  const every = S?.remindEvery ?? 43200;
+  for (const b of document.querySelectorAll('#remind-seg button')) {
+    b.setAttribute('aria-checked', String(Number(b.dataset.every) === every));
+  }
+  const st = await pushStatus();
+  $('#remind-status').textContent = !every
+    ? 'Apagado: no te recordamos nada.'
+    : st === 'on'
+      ? `Si en ${REMIND_TEXT[every]} no le cuentas nada al Guardián, te lo recordamos. Nunca de noche.`
+      : `Cada ${REMIND_TEXT[every]} sin contarle nada al Guardián te lo recordamos, pero primero activa las alertas.`;
+}
+
+async function setRemind(e) {
+  const b = e.target.closest('button[data-every]');
+  const every = Number(b?.dataset.every);
+  if (!b || !S || every === S.remindEvery) return;
+  try {
+    apply((await api('PATCH', '/api/me', { remindEvery: every, tz: userTz() })).state);
+    await renderRemind();
+    if (!every) toast('Recordatorio apagado');
+    else if ((await pushStatus()) === 'on') toast(`Listo: te recordamos cada ${REMIND_TEXT[every]} sin contar tu día`);
+    else toast('Ahora activa las alertas para recibirlo');
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 async function renderPush() {
+  renderRemind();
   const st = await pushStatus();
   $('#push-status').textContent = PUSH_TEXT[st];
   const b = $('#btn-push');
@@ -1237,7 +1284,7 @@ async function togglePush() {
       const { publicKey } = await api('GET', '/api/push/key');
       await current?.unsubscribe();
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(publicKey) });
-      await api('POST', '/api/push', sub.toJSON());
+      await api('POST', '/api/push', { ...sub.toJSON(), tz: userTz() });
       toast('Alertas activadas');
     }
   } catch (err) {
@@ -1250,7 +1297,7 @@ async function syncPush() {
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     const sub = await reg?.pushManager?.getSubscription();
-    if (sub && saved.token) await api('POST', '/api/push', sub.toJSON());
+    if (sub && saved.token) await api('POST', '/api/push', { ...sub.toJSON(), tz: userTz() });
   } catch {}
 }
 
@@ -1425,6 +1472,9 @@ function registerSW() {
   if (!('serviceWorker' in navigator)) return;
   const hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.open === 'day') openDayFromReminder(); // tocó el recordatorio con la app ya abierta
+  });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     // Nueva versión desplegada: recarga, pero nunca a mitad de una acción.
     if (hadController && !document.querySelector('dialog[open]')) location.reload();
@@ -1534,6 +1584,7 @@ $('#sheet-share').addEventListener('close', () => clearTimeout(pollTimer));
 
 // Ajustes
 $('#btn-push').addEventListener('click', togglePush);
+$('#remind-seg').addEventListener('click', setRemind);
 $('#btn-install').addEventListener('click', async () => {
   if (!installEvent) return;
   installEvent.prompt();
@@ -1579,5 +1630,7 @@ if (saved.token) {
   refresh().then((ok) => {
     syncPush();
     if (ok && giftCode) claimGift();
+    else if (ok && dayOnLoad) openDayFromReminder();
+    dayOnLoad = false;
   });
 }

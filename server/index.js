@@ -158,6 +158,7 @@ async function api(req, res, p) {
 
   if (m === 'PATCH' && p === '/api/me') {
     const b = await readJson(req);
+    if (b?.remindEvery !== undefined) return send(res, 200, store.setReminder(id, b.remindEvery, b.tz));
     return send(res, 200, store.setNickname(id, b.nickname));
   }
 

@@ -284,7 +284,8 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 #sheet-tx[data-mode='spend'] { --tx: var(--red); }
 .seg { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--raise); }
 .seg button { height: 40px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: 15px; font-weight: 600; transition: background-color 0.2s, color 0.2s; }
-.seg button[aria-selected='true'] { background: rgba(255, 255, 255, 0.09); color: var(--tx); }
+.seg button[aria-selected='true'], .seg button[aria-checked='true'] { background: rgba(255, 255, 255, 0.09); color: var(--tx, var(--green)); }
+.seg-4 { grid-template-columns: repeat(4, 1fr); }
 .cats { display: flex; gap: 8px; margin: 0 -20px; padding: 0 20px; overflow-x: auto; scrollbar-width: none; }
 .cats::-webkit-scrollbar { display: none; }
 .cats button {
@@ -382,6 +383,7 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 .pill:disabled { opacity: 0.35; }
 .pill-danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
 .link-row .field { height: 42px; }
+.remind-row { flex-direction: column; align-items: stretch; gap: 12px; }
 .name-row { align-items: flex-end; }
 .name-row .grow { flex: 1; min-width: 0; }
 .name-row .field { height: 44px; margin-top: 8px; }

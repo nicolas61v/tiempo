@@ -7,6 +7,14 @@ const MESSAGES = {
   0: { title: 'Tiempo agotado', body: 'Tu reloj llegó a cero. Puedes renacer.' },
 };
 
+// Recordatorio de "Mi día", según la hora de la persona.
+const REMINDERS = [
+  { until: 12, title: '¿Cómo va tu día?', body: 'Cuéntale al Guardián lo que llevas: lo bueno suma tiempo.' },
+  { until: 18, title: '¿Qué has hecho hoy?', body: 'Cuéntale al Guardián antes de que se te olvide.' },
+  { until: 24, title: 'Antes de que acabe el día', body: 'Cuéntale al Guardián qué hiciste. Lo que no le cuentas no suma.' },
+];
+export const reminderFor = (hour) => REMINDERS.find((r) => hour < r.until);
+
 const SWEEP_MS = 15_000;
 
 /**
@@ -22,15 +30,15 @@ export function createPush(store, { subject, publicKey, privateKey, log }) {
   }
   webpush.setVapidDetails(subject, keys.publicKey, keys.privateKey);
 
-  async function sendToUser(userId, payload) {
+  async function sendToUser(userId, payload, { topic = 'tiempo', urgency = 'high', ttl = 6 * 3600 } = {}) {
     const body = JSON.stringify(payload);
     await Promise.all(
       store.subsFor(userId).map(async (s) => {
         try {
           await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, {
-            TTL: 6 * 3600,
-            urgency: 'high',
-            topic: 'tiempo', // un aviso nuevo reemplaza al pendiente
+            TTL: ttl,
+            urgency,
+            topic, // un aviso nuevo reemplaza al pendiente del mismo tema
           });
         } catch (err) {
           if (err.statusCode === 404 || err.statusCode === 410) store.deleteSub(s.endpoint);
@@ -47,6 +55,14 @@ export function createPush(store, { subject, publicKey, privateKey, log }) {
     try {
       const due = store.claimAlerts(Date.now());
       await Promise.all(due.map((a) => sendToUser(a.userId, { ...MESSAGES[a.band], band: a.band, expiresAt: a.expiresAt })));
+      // Un recordatorio viejo no sirve: si el teléfono no lo recibe en 2 h, se descarta.
+      const reminders = store.claimReminders(Date.now());
+      await Promise.all(
+        reminders.map((r) => {
+          const { title, body } = reminderFor(r.hour);
+          return sendToUser(r.userId, { title, body, kind: 'remind' }, { topic: 'recordatorio', urgency: 'normal', ttl: 2 * 3600 });
+        }),
+      );
     } catch (err) {
       log.error('barrido de alertas:', err);
     } finally {
