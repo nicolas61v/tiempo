@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CATEGORIES, lifeSeconds } from '../public/economy.js';
+import { CATEGORIES, lifeSeconds, catText } from '../public/economy.js';
 
 /** Umbrales de alerta en segundos: 24 h, 1 h, 10 min y el final. */
 export const ALERTS = [86_400, 3_600, 600, 0];
@@ -32,13 +32,23 @@ const TRANSFER_TTL = 10 * 60_000;
 const MAX_PENDING = 3;
 const KEEP_MS = 60_000; // nadie puede regalar hasta quedar en cero
 
+/** Error para quien usa la app. message: en español; en: en inglés (si falta, se responde en español). */
 export class AppError extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, en) {
     super(message);
     this.status = status;
     this.code = code;
+    this.en = en;
+  }
+
+  /** El mensaje en el idioma de quien pregunta ('en' o 'es'). */
+  text(lang) {
+    return (lang === 'en' && this.en) || this.message;
   }
 }
+
+/** Idioma válido de la app o '' (sin elegir: la app usa inglés por defecto). */
+export const cleanLang = (lang) => (lang === 'en' || lang === 'es' ? lang : '');
 
 /** Menor umbral ya cruzado para este tiempo restante, o null si quedan más de 24 h. */
 export function alertBand(remainingMs) {
@@ -215,6 +225,10 @@ export const MIGRATIONS = [
        WHERE t.to_user = ledger.user_id AND 'Código ' || t.code = ledger.note), ''), 'alguien')
   WHERE category = 'recibo' AND note LIKE 'Código %';
   `,
+  // v9 · idioma de la app (en/es) para los avisos push y el Guardián. Solo agrega una columna: no toca relojes.
+  `
+  ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT '';  -- '' = sin elegir (inglés)
+  `,
 ];
 
 /** Identificador anónimo que genera la app en cada teléfono. Si no tiene la forma esperada, se ignora. */
@@ -302,14 +316,15 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   const st = (sql) => db.prepare(sql);
   const q = {
-    insertUser: st(`INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname, device_id, ip_hash)
-                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)`),
+    insertUser: st(`INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname, device_id, ip_hash, lang)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`),
     adminUsers: st(`
       SELECT u.nickname, u.created_at, u.life_no, u.expires_at, u.device_id, u.ip_hash,
              (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'reinicio') AS reinicios,
              (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'muerte')   AS muertes
       FROM users u ORDER BY u.created_at DESC`),
     setNick: st('UPDATE users SET nickname = ? WHERE id = ?'),
+    setLang: st('UPDATE users SET lang = ? WHERE id = ?'),
     setToken: st('UPDATE users SET token_hash = ? WHERE id = ?'),
     byHash: st('SELECT * FROM users WHERE token_hash = ?'),
     byId: st('SELECT * FROM users WHERE id = ?'),
@@ -356,14 +371,14 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     delUserSub: st('DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?'),
     subsFor: st('SELECT endpoint, p256dh, auth FROM push_subs WHERE user_id = ?'),
     due: st(`
-      SELECT id, expires_at, alerted FROM users
+      SELECT id, expires_at, alerted, lang FROM users
       WHERE expires_at <= ? AND (alerted IS NULL OR alerted > 0)
         AND EXISTS (SELECT 1 FROM push_subs s WHERE s.user_id = users.id)`),
     setAlerted: st('UPDATE users SET alerted = ? WHERE id = ?'),
     // Candidatos a recordatorio: vivos, con alertas y sin recordatorio reciente. "last" = lo último entre
     // el recordatorio anterior, el renacer y la última vez que le contó algo al Guardián.
     remindDue: st(`
-      SELECT u.id, u.remind_every, u.tz,
+      SELECT u.id, u.remind_every, u.tz, u.lang,
              MAX(u.reminded_at, u.born_at, COALESCE((SELECT MAX(d.created_at) FROM days d WHERE d.user_id = u.id), 0)) AS last
       FROM users u
       WHERE u.remind_every > 0 AND u.expires_at > ? AND u.reminded_at <= ? - u.remind_every * 1000
@@ -401,7 +416,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   function must(id) {
     const u = q.byId.get(id);
-    if (!u) throw new AppError(401, 'auth', 'Llave inválida');
+    if (!u) throw new AppError(401, 'auth', 'Llave inválida', 'Invalid key');
     return u;
   }
 
@@ -439,15 +454,15 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   function cleanImages(images, already) {
     if (images == null) return [];
-    if (!Array.isArray(images)) throw new AppError(400, 'images', 'Fotos inválidas');
+    if (!Array.isArray(images)) throw new AppError(400, 'images', 'Fotos inválidas', 'Invalid photos');
     if (images.length > PHOTOS_PER_MSG || already + images.length > PHOTOS_PER_DAY) {
-      throw new AppError(400, 'images', `Máximo ${PHOTOS_PER_MSG} fotos por mensaje y ${PHOTOS_PER_DAY} por día`);
+      throw new AppError(400, 'images', `Máximo ${PHOTOS_PER_MSG} fotos por mensaje y ${PHOTOS_PER_DAY} por día`, `Up to ${PHOTOS_PER_MSG} photos per message and ${PHOTOS_PER_DAY} per day`);
     }
     return images.map((im) => {
       const ok =
         im && MEDIA.has(im.media_type) && typeof im.data === 'string' &&
         im.data.length > 100 && im.data.length <= PHOTO_MAX_B64 && /^[A-Za-z0-9+/]+=*$/.test(im.data);
-      if (!ok) throw new AppError(400, 'images', 'Foto inválida o demasiado grande');
+      if (!ok) throw new AppError(400, 'images', 'Foto inválida o demasiado grande', 'Invalid or too large photo');
       return { media_type: im.media_type, data: im.data, hash: sha256(im.data) };
     });
   }
@@ -467,9 +482,9 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   function openDayOf(id, dayId) {
     const row = q.dayGet.get(dayId, id);
-    if (!row) throw new AppError(404, 'not_found', 'Ese día no existe');
+    if (!row) throw new AppError(404, 'not_found', 'Ese día no existe', "That day doesn't exist");
     const day = loadDay(row);
-    if (day.status !== 'abierto') throw new AppError(409, 'closed', 'Ese día ya se cerró');
+    if (day.status !== 'abierto') throw new AppError(409, 'closed', 'Ese día ya se cerró', 'That day is already closed');
     return day;
   }
 
@@ -531,11 +546,11 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   }
 
   return {
-    createUser({ nickname, deviceId, ip } = {}) {
+    createUser({ nickname, deviceId, ip, lang } = {}) {
       const token = newToken();
       const id = randomUUID();
       const t = now();
-      q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname), cleanDevice(deviceId), hashNetwork(ip));
+      q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname), cleanDevice(deviceId), hashNetwork(ip), cleanLang(lang));
       return { token, state: snapshot(must(id)) };
     },
 
@@ -543,6 +558,12 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       must(id);
       q.setNick.run(cleanNickname(nickname), id);
       return { state: snapshot(must(id)) };
+    },
+
+    /** Idioma de la app (lo manda en cada petición): para los avisos push y el Guardián. Nunca toca el reloj. */
+    setLang(id, lang) {
+      lang = cleanLang(lang);
+      if (lang) q.setLang.run(lang, id);
     },
 
     /** Llave nueva para el mismo reloj (si alguien vio la anterior). La vieja deja de servir; el reloj no cambia. */
@@ -556,7 +577,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     /** Cada cuánto recordarle contar su día (0 = nunca). La cuenta arranca de nuevo desde ahora. */
     setReminder(id, every, tz) {
       const u = must(id);
-      if (!REMIND_OPTIONS.includes(every)) throw new AppError(400, 'remind', 'Opción de recordatorio inválida');
+      if (!REMIND_OPTIONS.includes(every)) throw new AppError(400, 'remind', 'Opción de recordatorio inválida', 'Invalid reminder option');
       q.setRemind.run(every, now(), cleanTz(tz) || u.tz, id);
       return { state: snapshot(must(id)) };
     },
@@ -571,29 +592,31 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     /** Registra una actividad. El servidor calcula el tiempo con la fórmula; el cliente no decide. */
     addTx(id, { category, amount, note } = {}) {
       const c = CATEGORIES[category];
-      if (!c || c.system) throw new AppError(400, 'category', 'Categoría desconocida');
-      if (c.proof !== 'none') throw new AppError(400, 'needs_judge', `${c.label} se cuenta en "Mi día", con el Guardián`);
+      if (!c || c.system) throw new AppError(400, 'category', 'Categoría desconocida', 'Unknown category');
+      if (c.proof !== 'none') {
+        throw new AppError(400, 'needs_judge', `${c.label} se cuenta en "Mi día", con el Guardián`, `${catText(c, 'en').label} is logged in "My day", with the Guardian`);
+      }
       amount = Number(amount);
       if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_AMOUNT[c.unit]) {
-        throw new AppError(400, 'amount', 'Cantidad inválida');
+        throw new AppError(400, 'amount', 'Cantidad inválida', 'Invalid amount');
       }
       amount = c.unit === 'money' ? Math.round(amount) : Math.round(amount * 100) / 100;
       const seconds = lifeSeconds(category, amount, minWage);
-      if (!seconds || Math.abs(seconds) > MAX_TX) throw new AppError(400, 'amount', 'Cantidad inválida');
+      if (!seconds || Math.abs(seconds) > MAX_TX) throw new AppError(400, 'amount', 'Cantidad inválida', 'Invalid amount');
       note = typeof note === 'string' ? note.trim().slice(0, NOTE_MAX) : '';
 
       return tx(() => {
         const u = must(id);
         const t = now();
-        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó');
+        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó', 'Your time ran out');
         if (c.cap) {
           const { used } = q.usedSince.get(u.id, category, t - CAP_WINDOW);
           if (used + amount > c.cap + 1e-9) {
-            throw new AppError(409, 'cap', `Máximo ${c.cap} h de ${c.label.toLowerCase()} cada 24 horas`);
+            throw new AppError(409, 'cap', `Máximo ${c.cap} h de ${c.label.toLowerCase()} cada 24 horas`, `Up to ${c.cap} h of ${catText(c, 'en').label.toLowerCase()} every 24 hours`);
           }
         }
         const expires = u.expires_at + seconds * 1000;
-        if (expires <= t) throw new AppError(409, 'insufficient', 'No te alcanza el tiempo');
+        if (expires <= t) throw new AppError(409, 'insufficient', 'No te alcanza el tiempo', "You don't have enough time");
         const r = q.addTx.run(u.id, u.life_no, t, seconds, note, category, amount, 'declarado');
         // Si el propio usuario se acerca a un umbral, no le avisamos de lo que ya sabe.
         q.setExpiry.run(expires, alertBand(expires - t), u.id);
@@ -609,12 +632,12 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         const u = must(id);
         const row = q.txById.get(txId, u.id);
         const t = now();
-        if (!row || row.life_no !== u.life_no) throw new AppError(404, 'not_found', 'Ese movimiento ya no existe');
-        if (CATEGORIES[row.category]?.system) throw new AppError(409, 'system', 'Las transferencias no se deshacen');
-        if (t - row.at > UNDO_WINDOW) throw new AppError(409, 'too_late', 'Ya no se puede deshacer');
-        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó');
+        if (!row || row.life_no !== u.life_no) throw new AppError(404, 'not_found', 'Ese movimiento ya no existe', 'That entry no longer exists');
+        if (CATEGORIES[row.category]?.system) throw new AppError(409, 'system', 'Las transferencias no se deshacen', "Transfers can't be undone");
+        if (t - row.at > UNDO_WINDOW) throw new AppError(409, 'too_late', 'Ya no se puede deshacer', "It can't be undone anymore");
+        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó', 'Your time ran out');
         const expires = u.expires_at - row.seconds * 1000;
-        if (expires <= t) throw new AppError(409, 'insufficient', 'Deshacerlo te dejaría en cero');
+        if (expires <= t) throw new AppError(409, 'insufficient', 'Deshacerlo te dejaría en cero', 'Undoing it would leave you at zero');
         q.delTx.run(row.id);
         q.setExpiry.run(expires, alertBand(expires - t), u.id);
         return { state: snapshot(must(id)) };
@@ -625,7 +648,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       return tx(() => {
         const u = must(id);
         const t = now();
-        if (u.expires_at > t && !force) throw new AppError(409, 'alive', 'Aún tienes tiempo');
+        if (u.expires_at > t && !force) throw new AppError(409, 'alive', 'Aún tienes tiempo', 'You still have time');
         // ¿Se le acabó el tiempo o reinició teniendo tiempo? Sirve para ver quién aprovecha las vidas.
         const reason = u.expires_at > t ? 'reinicio' : 'muerte';
         q.endLife.run(u.id, u.life_no, u.born_at, Math.min(u.expires_at, t), reason);
@@ -639,15 +662,20 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     openDay(id, { text, images, tz } = {}) {
       let u = must(id);
       const t = now();
-      if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó');
+      if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó', 'Your time ran out');
       // "Hoy" es la fecha del teléfono: la zona llega con cada charla (si viajó, se actualiza).
       tz = cleanTz(tz);
       if (tz && tz !== u.tz) q.setTz.run(tz, id), (u = must(id));
       if (dayQuota(u, t).left <= 0) {
-        throw new AppError(429, 'days', `Ya usaste tus ${DAYS_PER_DAY} charlas de hoy con el Guardián. Se renuevan a medianoche.`);
+        throw new AppError(
+          429,
+          'days',
+          `Ya usaste tus ${DAYS_PER_DAY} charlas de hoy con el Guardián. Se renuevan a medianoche.`,
+          `You've used your ${DAYS_PER_DAY} chats with the Guardian for today. They reset at midnight.`,
+        );
       }
       text = typeof text === 'string' ? text.trim().slice(0, DAY_TEXT_MAX) : '';
-      if (!text) throw new AppError(400, 'text', 'Cuéntale al Guardián qué hiciste');
+      if (!text) throw new AppError(400, 'text', 'Cuéntale al Guardián qué hiciste', 'Tell the Guardian what you did');
       const imgs = cleanImages(images, 0);
       const turns = [{ role: 'user', text, photos: imgs.length }];
       const r = q.dayInsert.run(id, t, JSON.stringify(turns), JSON.stringify(imgs));
@@ -656,11 +684,11 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
     replyDay(id, dayId, { text, images } = {}) {
       const day = openDayOf(id, dayId);
-      if (day.turns.at(-1)?.role !== 'judge') throw new AppError(409, 'waiting', 'Espera el veredicto');
-      if (day.rounds >= MAX_REPLIES) throw new AppError(409, 'final', 'El Guardián ya tomó su decisión final');
+      if (day.turns.at(-1)?.role !== 'judge') throw new AppError(409, 'waiting', 'Espera el veredicto', 'Wait for the verdict');
+      if (day.rounds >= MAX_REPLIES) throw new AppError(409, 'final', 'El Guardián ya tomó su decisión final', 'The Guardian has made its final decision');
       text = typeof text === 'string' ? text.trim().slice(0, DAY_TEXT_MAX) : '';
       const imgs = cleanImages(images, day.images.length);
-      if (!text && !imgs.length) throw new AppError(400, 'text', 'Escribe tu réplica o sube una prueba');
+      if (!text && !imgs.length) throw new AppError(400, 'text', 'Escribe tu réplica o sube una prueba', 'Write your reply or upload proof');
       day.turns.push({ role: 'user', text, photos: imgs.length });
       day.images.push(...imgs);
       day.rounds += 1;
@@ -674,6 +702,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         turns: day.turns,
         images: day.images.map((im) => ({ ...im, reused: Boolean(q.hashUsed.get(im.hash)) })),
         now: now(),
+        lang: must(id).lang || 'en',
       };
     },
 
@@ -701,7 +730,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
     publicDay(id, dayId) {
       const row = q.dayGet.get(dayId, id);
-      if (!row) throw new AppError(404, 'not_found', 'Ese día no existe');
+      if (!row) throw new AppError(404, 'not_found', 'Ese día no existe', "That day doesn't exist");
       const day = loadDay(row);
       const u = must(id);
       const t = now();
@@ -724,10 +753,10 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     acceptDay(id, dayId) {
       return tx(() => {
         const day = openDayOf(id, dayId);
-        if (!day.verdict) throw new AppError(409, 'waiting', 'Aún no hay veredicto');
+        if (!day.verdict) throw new AppError(409, 'waiting', 'Aún no hay veredicto', 'No verdict yet');
         const u = must(id);
         const t = now();
-        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó');
+        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó', 'Your time ran out');
         const items = priceItems(u, day.verdict.items, t).filter((it) => it.seconds);
         let expires = u.expires_at;
         for (const it of items) {
@@ -756,15 +785,15 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
     createTransfer(id, seconds) {
       if (!Number.isInteger(seconds) || seconds < 60 || seconds > MAX_TX) {
-        throw new AppError(400, 'amount', 'Cantidad inválida (mínimo 1 minuto)');
+        throw new AppError(400, 'amount', 'Cantidad inválida (mínimo 1 minuto)', 'Invalid amount (minimum 1 minute)');
       }
       return tx(() => {
         const u = must(id);
         const t = now();
-        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó');
-        if (q.trPending.get(id).n >= MAX_PENDING) throw new AppError(429, 'pending', `Ya tienes ${MAX_PENDING} códigos activos`);
+        if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó', 'Your time ran out');
+        if (q.trPending.get(id).n >= MAX_PENDING) throw new AppError(429, 'pending', `Ya tienes ${MAX_PENDING} códigos activos`, `You already have ${MAX_PENDING} active codes`);
         const expires = u.expires_at - seconds * 1000;
-        if (expires - t < KEEP_MS) throw new AppError(409, 'insufficient', 'No puedes regalar todo tu tiempo');
+        if (expires - t < KEEP_MS) throw new AppError(409, 'insufficient', 'No puedes regalar todo tu tiempo', "You can't give away all your time");
         let code;
         do code = newCode();
         while (q.trGet.get(code));
@@ -777,18 +806,18 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
     claimTransfer(id, rawCode) {
       const code = normalizeCode(rawCode);
-      if (!/^[A-Z2-9]{6}$/.test(code)) throw new AppError(400, 'code', 'Código inválido');
+      if (!/^[A-Z2-9]{6}$/.test(code)) throw new AppError(400, 'code', 'Código inválido', 'Invalid code');
       const result = tx(() => {
         const u = must(id);
         const t = now();
         const tr = q.trGet.get(code);
-        if (!tr || tr.status !== 'pendiente') return { error: new AppError(404, 'code', 'Código inválido o ya usado') };
+        if (!tr || tr.status !== 'pendiente') return { error: new AppError(404, 'code', 'Código inválido o ya usado', 'Invalid or already used code') };
         if (tr.expires_at <= t) {
           refund(tr, t); // se guarda la devolución y luego se avisa del error
-          return { error: new AppError(410, 'expired', 'Ese código ya expiró') };
+          return { error: new AppError(410, 'expired', 'Ese código ya expiró', 'That code has expired') };
         }
-        if (tr.from_user === u.id) return { error: new AppError(409, 'own', 'Ese código es tuyo') };
-        if (u.expires_at <= t) return { error: new AppError(409, 'dead', 'Tu reloj está en cero: renace primero') };
+        if (tr.from_user === u.id) return { error: new AppError(409, 'own', 'Ese código es tuyo', 'That code is yours') };
+        if (u.expires_at <= t) return { error: new AppError(409, 'dead', 'Tu reloj está en cero: renace primero', 'Your clock is at zero: be reborn first') };
         // En el historial de cada uno queda con quién fue: "De Nico" / "Para Pipe".
         const fromName = q.byId.get(tr.from_user)?.nickname || '';
         q.addTx.run(u.id, u.life_no, t, tr.seconds, `De ${fromName || 'alguien'}`, 'recibo', tr.seconds, 'recibido');
@@ -805,8 +834,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     cancelTransfer(id, rawCode) {
       return tx(() => {
         const tr = q.trGet.get(normalizeCode(rawCode));
-        if (!tr || tr.from_user !== id) throw new AppError(404, 'code', 'Ese código no existe');
-        if (tr.status !== 'pendiente') throw new AppError(409, 'done', 'Ese código ya se usó');
+        if (!tr || tr.from_user !== id) throw new AppError(404, 'code', 'Ese código no existe', "That code doesn't exist");
+        if (tr.status !== 'pendiente') throw new AppError(409, 'done', 'Ese código ya se usó', 'That code was already used');
         refund(tr, now());
         return { state: snapshot(must(id)) };
       });
@@ -814,7 +843,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
     transferStatus(id, rawCode) {
       const tr = q.trGet.get(normalizeCode(rawCode));
-      if (!tr || tr.from_user !== id) throw new AppError(404, 'code', 'Ese código no existe');
+      if (!tr || tr.from_user !== id) throw new AppError(404, 'code', 'Ese código no existe', "That code doesn't exist");
       const toName = tr.to_user ? q.byId.get(tr.to_user)?.nickname || '' : '';
       return { code: tr.code, status: tr.status, seconds: tr.seconds, expiresAt: tr.expires_at, toName };
     },
@@ -831,7 +860,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       const { endpoint, keys } = sub ?? {};
       const ok = (s, max) => typeof s === 'string' && s.length > 0 && s.length <= max;
       if (!ok(endpoint, 1024) || !endpoint.startsWith('https://') || !ok(keys?.p256dh, 256) || !ok(keys?.auth, 256)) {
-        throw new AppError(400, 'subscription', 'Suscripción inválida');
+        throw new AppError(400, 'subscription', 'Suscripción inválida', 'Invalid subscription');
       }
       q.upsertSub.run(endpoint, id, keys.p256dh, keys.auth, now());
       q.trimSubs.run(id, id);
@@ -854,7 +883,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
           const band = alertBand(u.expires_at - t);
           if (band === null || (u.alerted !== null && band >= u.alerted)) continue;
           q.setAlerted.run(band, u.id);
-          out.push({ userId: u.id, band, expiresAt: u.expires_at });
+          out.push({ userId: u.id, band, expiresAt: u.expires_at, lang: u.lang || 'en' });
         }
         return out;
       });
@@ -872,7 +901,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
           const hour = localHour(t, u.tz);
           if (hour >= QUIET_FROM || hour < QUIET_TO) continue; // de noche espera a la mañana
           q.setReminded.run(t, u.id);
-          out.push({ userId: u.id, hour });
+          out.push({ userId: u.id, hour, lang: u.lang || 'en' });
         }
         return out;
       });

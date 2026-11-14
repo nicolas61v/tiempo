@@ -6,7 +6,8 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { openStore, alertBand, startOfLocalDay, MIGRATIONS } from '../server/store.js';
-import { buildContent } from '../server/judge.js';
+import { buildContent, systemFor } from '../server/judge.js';
+import { alertFor, reminderFor } from '../server/push.js';
 import { lifeSeconds } from '../public/economy.js';
 import { split } from '../public/clock.js';
 
@@ -498,6 +499,71 @@ test('migración v8: transferencias pasadas con nombre en el historial, sin toca
   assert.equal(pipe.expiresAt, 6_000_000);
   store.close();
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('migración v9: idioma de la app, sin tocar el reloj', () => {
+  const dir = tmpDir();
+  const raw = new DatabaseSync(path.join(dir, 'tiempo.db'));
+  for (const sql of MIGRATIONS.slice(0, 8)) raw.exec(sql); // la base como estaba en v8
+  raw.exec('PRAGMA user_version = 8');
+  const token = 'tk_hermana_000000000000000000';
+  const expires = Date.UTC(2026, 10, 21, 3, 14, 15);
+  raw
+    .prepare('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname) VALUES (?, ?, 1, 1, 1, ?, ?)')
+    .run('u1', createHash('sha256').update(token).digest('base64url'), expires, 'Ana');
+  raw.close();
+
+  const store = openStore({ dir, minWage: WAGE });
+  const id = store.auth(token).id;
+  assert.equal(store.auth(token).lang, ''); // sin elegir: la app usa inglés
+  store.setLang(id, 'es');
+  store.setLang(id, 'klingon'); // se ignora
+  assert.equal(store.auth(token).lang, 'es');
+  assert.equal(store.state(id).expiresAt, expires);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('idioma: los errores se responden en inglés o en español', () => {
+  const { store, id } = setup();
+  const err = (fn) => {
+    try {
+      fn();
+    } catch (e) {
+      return e;
+    }
+    assert.fail('no lanzó error');
+  };
+  const empty = err(() => store.openDay(id, { text: '' }));
+  assert.equal(empty.text('en'), 'Tell the Guardian what you did');
+  assert.equal(empty.text('es'), 'Cuéntale al Guardián qué hiciste');
+  assert.equal(empty.text(''), 'Cuéntale al Guardián qué hiciste'); // una app vieja no manda idioma: español
+  const judged = err(() => add(store, id, 'salud', 1));
+  assert.equal(judged.text('en'), 'Health is logged in "My day", with the Guardian');
+  assert.equal(judged.text('es'), 'Salud se cuenta en "Mi día", con el Guardián');
+});
+
+test('idioma: avisos push, recordatorios y Guardián en el idioma de cada persona', () => {
+  const { store, id, advance } = setup();
+  const other = store.auth(store.createUser({ lang: 'es' }).token).id;
+  assert.equal(store.auth(store.createUser({ lang: 'xx' }).token).lang, '');
+  store.addSub(id, SUB);
+  store.addSub(other, { ...SUB, endpoint: 'https://push.example/otro' });
+  advance(6 * DAY + 1000); // los dos entran en su último día
+  const alerts = Object.fromEntries(store.claimAlerts().map((a) => [a.userId, a.lang]));
+  assert.deepEqual(alerts, { [id]: 'en', [other]: 'es' });
+  assert.equal(alertFor(86_400, 'es').title, 'Menos de 24 horas');
+  assert.equal(alertFor(86_400, 'en').title, 'Less than 24 hours');
+  assert.equal(alertFor(0, '').title, "Time's up");
+  assert.equal(reminderFor(9, 'es').title, '¿Cómo va tu día?');
+  assert.equal(reminderFor(20, 'en').title, 'Before the day ends');
+
+  const dayId = store.openDay(other, { text: 'fui al gym' }).id;
+  assert.equal(store.judgeInput(other, dayId).lang, 'es');
+  assert.equal(store.judgeInput(id, store.openDay(id, { text: 'gym' }).id).lang, 'en');
+  assert.match(systemFor('es'), /en español latino/);
+  assert.match(systemFor('en'), /en inglés \(English\)/);
+  assert.match(systemFor(undefined), /en inglés \(English\)/);
 });
 
 test('el reloj parte en años, meses, semanas y días', () => {

@@ -10,7 +10,7 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
 (SMMLV 2026 $1.750.905 / 30 = $58.364).
 
 - **Stack**: Node 24 sin framework, SQLite integrado (`node:sqlite`) con migraciones versionadas
-  (`MIGRATIONS` en `server/store.js`, hoy v1–v8), `web-push` y el SDK de Anthropic. Frontend vanilla sin
+  (`MIGRATIONS` en `server/store.js`, hoy v1–v9), `web-push` y el SDK de Anthropic. Frontend vanilla sin
   build en `public/`. Detalle en `README.md`.
 - **Deploy**: push a `main` → Railway despliega solo. Volumen en `/data`. Producción:
   `tiempo-production-79dc57d3.up.railway.app`.
@@ -27,6 +27,9 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
   - Alertas push (24 h, 1 h, 10 min, cero) y recordatorio de "Mi día" (6/12/24 h, nunca de 22:00 a 8:00).
   - Anti-abuso (dispositivo anónimo + huella cifrada de red) y panel `/admin`.
   - La app se actualiza sola al volver a ella (si hay una hoja abierta, al cerrarla).
+  - **Idiomas**: inglés (por defecto, decisión del dueño) y español; se cambia en Ajustes → Language y queda
+    en el teléfono (`public/i18n.js`). El servidor responde errores, avisos push y al Guardián en el idioma
+    de la app (encabezado `X-Lang`, columna `users.lang`). La economía sigue en pesos colombianos.
 
 ## Reglas que no se rompen
 
@@ -124,15 +127,17 @@ parseWebhook(req, rawBody) → { type: 'paid' | 'refunded', userId, product, ref
 - Pruebas: webhook duplicado, firma inválida (400), reembolso que descuenta, Revivir solo en fase `dead`,
   Plus vencido que vuelve al límite.
 
-### 3. Idiomas (acordado con el dueño)
+### 3. Idiomas: lo que falta
 
-- Sacar los textos de `public/index.html` y `public/app.js` a diccionarios (`es` y `en` primero).
-  Detectar por `navigator.language`, con selector en Ajustes.
-- El Guardián responde en el idioma del usuario (pasar el idioma a `judge.js`).
+Hecho: inglés y español (inglés por defecto; selector en Ajustes). Cómo se agrega texto: el fijo del HTML va
+en inglés en `index.html` con `data-i18n="clave"` y en español en `ES_STATIC`; el dinámico va en `EN` y `ES`
+de `public/i18n.js` y se usa con `T('clave')`. `test/i18n.test.js` falla si falta una clave en algún idioma.
+
 - **Salario mínimo por país**: hoy es fijo de Colombia (`config.minWage`, meta `min-wage`). Con otros
   países, 1 día = salario mínimo diario de **su** país. El país se elige en Ajustes y se guarda en `users`
   (migración). Se cruza con el precio de los pagos: ¿USD único o por país? (decisión del dueño).
-- Los formatos `Intl` hoy están fijos en `es` / `es-CO` / COP: parametrizarlos.
+- La moneda sigue fija en COP (también en inglés, donde se ve como "$58,364"): cambia junto con el país.
+  Mientras tanto, a quien use la app en inglés y cuente plata en dólares, el Guardián la toma como pesos.
 
 ### 4. Antes de la promoción
 

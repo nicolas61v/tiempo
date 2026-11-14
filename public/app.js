@@ -1,5 +1,6 @@
 import { Clock } from './clock.js';
-import { CATEGORIES, lifeSeconds, dayValue } from './economy.js';
+import { CATEGORIES, lifeSeconds, dayValue, catText } from './economy.js';
+import { T, LANG, LOCALE, saveLang, translatePage } from './i18n.js';
 import qrcode from './vendor/qrcode.mjs';
 import { canScan, startScan } from './scan.js';
 
@@ -12,15 +13,15 @@ const MIN_WAGE = Number(meta('min-wage')) || 1_750_905;
 const DAYS_PER_DAY = Number(meta('days-per-day')) || 7; // charlas con el Guardián por fecha
 const DAY_VALUE = dayValue(MIN_WAGE);
 const VERSION = meta('app-version') || 'dev';
-const STATUS = { ok: 'Tiempo restante', low: 'Último día', critical: 'Última hora', dead: 'Tiempo agotado' };
 // A mano solo entra lo que va "en tu palabra"; lo demás pasa por el Guardián.
 const ORDER = { earn: ['ingreso', 'inversion'], spend: ['consumo'] };
 const CHIPS = { money: [5_000, 20_000, 50_000, 100_000, 500_000, 1_000_000], hours: [0.25, 0.5, 1, 2, 4, 8] };
 const MAX_AMOUNT = { money: 10_000_000_000, hours: 24 };
 const SHARE_CHIPS = [300, 900, 3_600, 21_600, DAY, WEEK];
-const VERDICT_LABEL = { aprobado: 'Aprobado', rechazado: 'Rechazado', necesita_prueba: 'Falta prueba', no_cuenta: 'No cuenta' };
-const cop = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
-const num = new Intl.NumberFormat('es-CO');
+// La economía es en pesos colombianos (1 día = salario mínimo de Colombia), en cualquier idioma.
+const cop = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'COP', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 });
+const num = new Intl.NumberFormat(LOCALE);
+const cText = (c) => catText(c, LANG);
 
 const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -93,9 +94,9 @@ function fmtDur(sec, max = 2) {
   return out.join(' ');
 }
 function fmtLong(sec) {
-  for (const [n, one, many] of [[WEEK, 'semana', 'semanas'], [DAY, 'día', 'días'], [HOUR, 'hora', 'horas']]) {
+  for (const [n, unit] of [[WEEK, 'unit.week'], [DAY, 'unit.day'], [HOUR, 'unit.hour']]) {
     const v = sec / n;
-    if (Number.isInteger(v)) return `${v} ${v === 1 ? one : many}`;
+    if (Number.isInteger(v)) return T(unit, { n: v });
   }
   return fmtDur(sec, 3);
 }
@@ -103,23 +104,35 @@ function amountOf(category, amount) {
   const unit = CATEGORIES[category]?.unit;
   return unit === 'money' ? cop.format(amount) : unit === 'seconds' ? fmtDur(amount, 3) : fmtDur(amount * HOUR);
 }
-const labelOf = (t) => CATEGORIES[t.category]?.label || (t.seconds > 0 ? 'Ganado' : 'Gastado');
-function detailOf(t) {
-  const c = CATEGORIES[t.category];
+const labelOf = (x) => (CATEGORIES[x.category] ? cText(CATEGORIES[x.category]).label : T(x.seconds > 0 ? 'earned' : 'spent'));
+function detailOf(x) {
+  const c = CATEGORIES[x.category];
   if (!c) return '';
-  const seal = t.status === 'verificado' ? ' · ✓ con prueba' : t.status === 'aprobado' ? ' · ✓ Guardián' : '';
-  return `${c.label} · ${amountOf(t.category, t.amount)}${seal}`;
+  const seal = x.status === 'verificado' ? T('seal.photo') : x.status === 'aprobado' ? T('seal.judge') : '';
+  return `${cText(c).label} · ${amountOf(x.category, x.amount)}${seal}`;
 }
-const dtDate = new Intl.DateTimeFormat('es', { weekday: 'long', day: 'numeric', month: 'long' });
-const dtTime = new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit' });
-const dtDay = new Intl.DateTimeFormat('es', { weekday: 'long', day: 'numeric', month: 'short' });
-const rtf = new Intl.RelativeTimeFormat('es', { numeric: 'auto', style: 'short' });
+/** Las notas de transferencias las escribe el servidor en español ("De Nico", "Para Pipe", "Código ABC123"). */
+function noteOf(x) {
+  const note = x.note || '';
+  if (LANG === 'es' || !CATEGORIES[x.category]?.system) return note;
+  const who = (n) => (n === 'alguien' ? '' : n);
+  let m;
+  if ((m = /^Para (.*)$/s.exec(note))) return T('note.to', { name: who(m[1]) });
+  if ((m = /^De (.*)$/s.exec(note))) return T('note.from', { name: who(m[1]) });
+  if ((m = /^Código (\w+)$/.exec(note))) return T('note.code', { code: m[1] });
+  return note;
+}
+// Fechas: 'es' a secas (24 h, como siempre) o 'en' (inglés de EE. UU.).
+const dtDate = new Intl.DateTimeFormat(LANG, { weekday: 'long', day: 'numeric', month: 'long' });
+const dtTime = new Intl.DateTimeFormat(LANG, { hour: '2-digit', minute: '2-digit' });
+const dtDay = new Intl.DateTimeFormat(LANG, { weekday: 'long', day: 'numeric', month: 'short' });
+const rtf = new Intl.RelativeTimeFormat(LANG, { numeric: 'auto', style: 'short' });
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 function rel(ts) {
   const s = Math.round((ts - now()) / 1000);
   const a = Math.abs(s);
-  if (a < MIN) return 'ahora';
+  if (a < MIN) return T('now');
   if (a < HOUR) return rtf.format(Math.round(s / MIN), 'minute');
   if (a < DAY) return rtf.format(Math.round(s / HOUR), 'hour');
   return rtf.format(Math.round(s / DAY), 'day');
@@ -127,9 +140,9 @@ function rel(ts) {
 function dayLabel(ts) {
   const d = new Date(ts).toDateString();
   const today = new Date();
-  if (d === today.toDateString()) return 'Hoy';
+  if (d === today.toDateString()) return T('today');
   today.setDate(today.getDate() - 1);
-  if (d === today.toDateString()) return 'Ayer';
+  if (d === today.toDateString()) return T('yesterday');
   return cap(dtDay.format(ts));
 }
 const signed = (s) => `${s > 0 ? '+' : '−'}${fmtDur(s, 3)}`;
@@ -163,16 +176,17 @@ async function api(method, path, body) {
       headers: {
         ...(body && { 'Content-Type': 'application/json' }),
         ...(saved.token && { Authorization: `Bearer ${saved.token}` }),
+        'X-Lang': LANG, // el servidor responde errores, avisos y al Guardián en este idioma
       },
       body: body && JSON.stringify(body),
     });
   } catch {
-    throw Object.assign(new Error('Sin conexión'), { offline: true });
+    throw Object.assign(new Error(T('net.offline')), { offline: true });
   }
   const mid = (t0 + Date.now()) / 2;
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.message || 'Algo falló'), { status: res.status, code: data.error });
+  if (!res.ok) throw Object.assign(new Error(data.message || T('net.failed')), { status: res.status, code: data.error });
   const snap = data.state || (data.expiresAt && data.lifeNo ? data : null);
   if (snap?.now) {
     // Corrige la hora del teléfono, sin saltos por ruido de red.
@@ -192,7 +206,7 @@ function apply(state) {
 
 /* ───────── pantalla principal ───────── */
 
-const clock = new Clock($('#clock'));
+const clock = new Clock($('#clock'), { units: T('clock.units'), ariaLabel: (parts) => T('clock.left', parts) });
 let timer = 0;
 let lastMinute = -1;
 const moodFor = (rem) => (rem <= 0 ? 'dead' : rem <= HOUR * 1000 ? 'critical' : rem <= DAY * 1000 ? 'low' : 'ok');
@@ -202,15 +216,13 @@ function renderIntro() {
   document.body.dataset.phase = 'intro';
   document.body.dataset.mood = 'ok';
   clock.set(INITIAL * 1000);
-  $('#status').textContent = 'Tu reloj';
+  $('#status').textContent = T('status.intro');
   $('#life').textContent = '';
   $('#intro-initial').textContent = fmtLong(INITIAL);
   const gift = $('#gift');
   gift.hidden = !giftCode;
   // En iPhone, el navegador y la app instalada guardan relojes distintos: que no cree uno nuevo sin querer.
-  gift.textContent = standalone
-    ? 'Alguien te está regalando tiempo. Empieza tu reloj para recibirlo.'
-    : `Te están regalando tiempo (código ${giftCode}). Si ya tienes Tiempo instalado, ábrelo y en Transferir → Recibir escanea el QR o escribe el código. Si es tu primera vez, empieza aquí.`;
+  gift.textContent = standalone ? T('gift.app') : T('gift.browser', { code: giftCode });
   $('#recover').hidden = !saved.oldKeys?.length;
 }
 
@@ -231,7 +243,7 @@ async function recoverClock() {
       const state = await api('GET', '/api/state');
       saved.oldKeys = saved.oldKeys.filter((k) => k !== key);
       apply(state);
-      toast('Recuperamos tu reloj.');
+      toast(T('recover.ok'));
       btn.disabled = false;
       return;
     } catch (err) {
@@ -241,15 +253,15 @@ async function recoverClock() {
   }
   persist();
   btn.disabled = false;
-  toast('Todavía no aparece. Intenta en unos minutos o pega tu llave en Ajustes.');
+  toast(T('recover.none'));
 }
 
 function render() {
   if (!S || !saved.token) return renderIntro();
   $('#gift').hidden = true;
   $('#recover').hidden = true; // el aviso de recuperar solo tiene sentido en la pantalla de inicio
-  $('#life').textContent = S.nickname ? `${S.nickname} · Vida ${S.lifeNo}` : `Vida ${S.lifeNo}`;
-  $('#btn-rebirth').textContent = `Renacer con ${fmtLong(S.initialSeconds)}`;
+  $('#life').textContent = S.nickname ? `${S.nickname} · ${T('life', { n: S.lifeNo })}` : T('life', { n: S.lifeNo });
+  $('#btn-rebirth').textContent = T('rebirthWith', { x: fmtLong(S.initialSeconds) });
   lastMinute = -1;
   tick();
   if ($('#sheet-history').open) renderHistory();
@@ -269,7 +281,7 @@ function tick() {
     const prev = body.dataset.mood;
     body.dataset.mood = mood;
     body.dataset.phase = phase;
-    $('#status').textContent = STATUS[mood];
+    $('#status').textContent = T(`status.${mood}`);
     if (wasAlive && prev !== mood) vibrate(mood === 'dead' ? [280, 120, 280] : mood === 'critical' ? 60 : 0);
     lastMinute = -1;
   }
@@ -287,11 +299,11 @@ function tick() {
 function renderMeta(rem) {
   const out = $('#expiry');
   if (rem > 0) {
-    out.textContent = `Se agota el ${dtDate.format(S.expiresAt)} a las ${dtTime.format(S.expiresAt)}`;
+    out.textContent = T('expires', { date: dtDate.format(S.expiresAt), time: dtTime.format(S.expiresAt) });
   } else {
     const lived = (S.expiresAt - S.bornAt) / 1000;
     const best = Math.max(lived, (S.record || 0) / 1000);
-    out.textContent = `Esta vida duró ${fmtDur(lived, 3)}.` + (best > lived ? ` Tu récord: ${fmtDur(best, 3)}.` : '');
+    out.textContent = T('lifeLasted', { x: fmtDur(lived, 3) }) + (best > lived ? T('yourRecord', { x: fmtDur(best, 3) }) : '');
   }
 }
 
@@ -302,7 +314,7 @@ function renderLast(rem) {
   btn.hidden = false;
   btn.replaceChildren(
     el('span', `amt ${t.seconds > 0 ? 'up' : 'down'}`, signed(t.seconds)),
-    el('span', 'txt', `${t.note || labelOf(t)} · ${rel(t.at)}`),
+    el('span', 'txt', `${noteOf(t) || labelOf(t)} · ${rel(t.at)}`),
   );
 }
 
@@ -431,14 +443,16 @@ function usedLast24h(cat) {
 }
 
 function formula(c, amount) {
-  const rate = c.rate === 1 ? '' : ` × ${String(c.rate).replace('.', ',')}`;
-  const what = c.label.toLowerCase();
+  const rate = c.rate === 1 ? '' : ` × ${num.format(c.rate)}`;
+  const what = cText(c).label.toLowerCase();
   if (c.unit === 'money') {
     return amount
-      ? `${cop.format(amount)}${rate} ÷ ${cop.format(DAY_VALUE)} por día`
-      : `1 día de vida = ${cop.format(DAY_VALUE)}, un salario mínimo diario`;
+      ? `${cop.format(amount)}${rate} ÷ ${cop.format(DAY_VALUE)} ${T('formula.money')}`
+      : T('formula.base', { dv: cop.format(DAY_VALUE) });
   }
-  return amount ? `${fmtDur(amount * HOUR)} de ${what}${rate}` : `1 h de ${what} = ${fmtDur(c.rate * HOUR)} de vida`;
+  return amount
+    ? T('formula.hours', { dur: fmtDur(amount * HOUR), what, rate })
+    : T('formula.hoursBase', { what, dur: fmtDur(c.rate * HOUR) });
 }
 
 function suggestions(mode) {
@@ -462,7 +476,7 @@ function remember(note, category, amount) {
   persist();
 }
 
-const moneyChip = (v) => (v >= 1e6 ? `+${v / 1e6} M` : `+${v / 1e3} mil`);
+const moneyChip = (v) => T('moneyChip', { v });
 
 function renderTx() {
   const d = $('#sheet-tx');
@@ -474,12 +488,12 @@ function renderTx() {
 
   $('#tx-cats').replaceChildren(
     ...ORDER[txMode].map((k) => {
-      const b = button(CATEGORIES[k].label, { cat: k });
+      const b = button(cText(CATEGORIES[k]).label, { cat: k });
       b.setAttribute('aria-pressed', String(k === txCat));
       return b;
     }),
   );
-  $('#tx-hint').textContent = c.hint + (c.cap ? ` Cuentan máximo ${c.cap} h cada 24 h.` : '');
+  $('#tx-hint').textContent = cText(c).hint + (c.cap ? T('capHint', { cap: c.cap }) : '');
 
   $('#tx-money-wrap').hidden = !money;
   const input = $('#tx-money');
@@ -499,15 +513,15 @@ function renderTx() {
   const short = !earn && txAmount > 0 && after <= 0;
   const preview = $('#tx-preview');
   preview.textContent = !txAmount
-    ? earn ? 'Mira cuánta vida vale lo que ganaste.' : 'Mira cuánta vida te costó.'
-    : overCap ? `Te pasas del máximo: ya llevas ${fmtDur(used * HOUR)} en las últimas 24 h.`
-    : short ? 'No te alcanza: eso te dejaría en cero.'
-    : `Te quedarán ${fmtDur(after / 1000, 3)}.`;
+    ? T(earn ? 'tx.seeEarn' : 'tx.seeSpend')
+    : overCap ? T('tx.overCap', { used: fmtDur(used * HOUR) })
+    : short ? T('tx.short')
+    : T('tx.after', { x: fmtDur(after / 1000, 3) });
   preview.classList.toggle('warn', overCap || short);
 
   const submit = $('#tx-submit');
   submit.disabled = !secs || overCap || short || busy;
-  submit.textContent = secs ? `${earn ? 'Ganar' : 'Gastar'} ${fmtDur(Math.abs(secs), 3)}` : earn ? 'Ganar' : 'Gastar';
+  submit.textContent = secs ? T(earn ? 'earnX' : 'spendX', { x: fmtDur(Math.abs(secs), 3) }) : T(earn ? 'earn' : 'spend');
   submit.className = `btn ${earn ? 'btn-earn' : 'btn-danger'}`;
 
   const list = suggestions(txMode);
@@ -533,7 +547,7 @@ async function submitTx(e) {
     const s = r.tx.seconds;
     clock.flash(s > 0 ? 'gain' : 'loss');
     vibrate(s > 0 ? 18 : [12, 50, 12]);
-    toast(`${signed(s)} de vida`, { label: 'Deshacer', run: () => undo(r.tx.id) });
+    toast(T('ofLife', { x: signed(s) }), { label: T('undo'), run: () => undo(r.tx.id) });
   } catch (err) {
     toast(err.message);
   } finally {
@@ -545,7 +559,7 @@ async function submitTx(e) {
 async function undo(id) {
   try {
     apply((await api('DELETE', `/api/tx/${id}`)).state);
-    toast('Movimiento deshecho');
+    toast(T('undone'));
   } catch (err) {
     toast(err.message);
   }
@@ -575,17 +589,17 @@ function closeDay() {
 
 function userBubble(text, photos) {
   const b = el('div', 'bubble me', text || '');
-  if (photos) b.append(el('span', 'photos', photos === 1 ? '1 foto' : `${photos} fotos`));
+  if (photos) b.append(el('span', 'photos', T('photos', { n: photos })));
   return b;
 }
 
 function judgeBubble(turn, last) {
   const b = el('div', 'bubble judge');
-  const who = el('span', 'who', 'Guardián');
+  const who = el('span', 'who', T('guardian'));
   if (synth) {
     const say = el('button', 'say');
     say.type = 'button';
-    say.setAttribute('aria-label', 'Escuchar este veredicto');
+    say.setAttribute('aria-label', T('listenVerdict'));
     say.innerHTML = SPEAKER_SVG;
     say.addEventListener('click', () => speakVerdict(turn));
     who.append(say);
@@ -597,12 +611,12 @@ function judgeBubble(turn, last) {
       const c = CATEGORIES[it.category];
       const row = el('div', 'it');
       row.append(
-        el('span', 'it-name', it.activity || c?.label || 'Actividad'),
+        el('span', 'it-name', it.activity || (c && cText(c).label) || T('activity')),
         el('span', `it-life${it.seconds > 0 ? ' up' : it.seconds < 0 ? ' down' : ''}`, it.seconds ? signed(it.seconds) : '—'),
       );
       const metaLine = el('span', 'it-meta');
-      metaLine.append(el('span', `badge ${it.verdict}`, VERDICT_LABEL[it.verdict] || it.verdict));
-      const what = c ? `${c.label} · ${amountOf(it.category, it.amount)}${it.capped ? ' (tope)' : ''}` : '';
+      metaLine.append(el('span', `badge ${it.verdict}`, T(`verdict.${it.verdict}`)));
+      const what = c ? `${cText(c).label} · ${amountOf(it.category, it.amount)}${it.capped ? T('capped') : ''}` : '';
       metaLine.append(document.createTextNode([what, it.reason].filter(Boolean).join(' — ')));
       row.append(metaLine);
       list.append(row);
@@ -611,7 +625,7 @@ function judgeBubble(turn, last) {
   }
   if (last) {
     const net = turn.items.reduce((s, it) => s + it.seconds, 0);
-    const total = el('p', 'net', 'Total del día');
+    const total = el('p', 'net', T('dayTotal'));
     total.prepend(el('b', null, net ? signed(net) : '0m'));
     b.append(total);
   }
@@ -624,9 +638,9 @@ function renderThumbs() {
       const t = el('div', 'thumb');
       const img = document.createElement('img');
       img.src = p.url;
-      img.alt = `Foto ${i + 1}`;
+      img.alt = T('photoN', { n: i + 1 });
       const x = button('×', { rm: i });
-      x.setAttribute('aria-label', 'Quitar foto');
+      x.setAttribute('aria-label', T('removePhoto'));
       t.append(img, x);
       return t;
     }),
@@ -641,9 +655,9 @@ function dayQuota() {
 }
 
 function quotaText({ per, left }) {
-  if (left <= 0) return `Ya usaste tus ${per} charlas de hoy. Se renuevan a medianoche.`;
-  if (left >= per) return `Tienes ${per} charlas por día con el Guardián. Se renuevan a medianoche.`;
-  return `Hoy te ${left === 1 ? 'queda 1 charla' : `quedan ${left} charlas`} de ${per}. Se renuevan a medianoche.`;
+  if (left <= 0) return T('quota.none', { per });
+  if (left >= per) return T('quota.full', { per });
+  return T('quota.some', { left, per });
 }
 
 function renderDay() {
@@ -653,25 +667,23 @@ function renderDay() {
   const nodes = turns.map((t, i) => (t.role === 'user' ? userBubble(t.text, t.photos) : judgeBubble(t, i === lastJudge)));
   if (dayBusy) {
     if (pendingMine) nodes.push(userBubble(pendingMine.text, pendingMine.photos));
-    nodes.push(el('div', 'bubble judge thinking', 'El Guardián está revisando…'));
+    nodes.push(el('div', 'bubble judge thinking', T('reviewing')));
   }
   $('#d-thread').replaceChildren(...nodes);
 
   const hasVerdict = turns.at(-1)?.role === 'judge';
   const left = day ? day.maxReplies - day.rounds : 0;
   $('#d-form').hidden = Boolean(day) && (!hasVerdict || left <= 0) && !dayBusy;
-  $('#d-text').placeholder = day
-    ? 'Replica: explica mejor o sube una prueba…'
-    : 'Hoy fui al gym una hora, estudié inglés 2 h y vendí 3 kits por 90 mil…';
-  $('#d-send').textContent = day ? 'Replicar' : 'Enviar al Guardián';
+  $('#d-text').placeholder = T(day ? 'day.replyPlaceholder' : 'day.placeholder');
+  $('#d-send').textContent = T(day ? 'day.reply' : 'day.send');
   $('#d-send').disabled = dayBusy || (!day && quota.left <= 0);
-  $('#d-left').textContent = day ? (left === 1 ? 'Te queda 1 réplica.' : `Te quedan ${left} réplicas.`) : quotaText(quota);
+  $('#d-left').textContent = day ? T('day.repliesLeft', { n: left }) : quotaText(quota);
   renderThumbs();
 
   $('#d-actions').hidden = !hasVerdict || dayBusy;
   if (hasVerdict) {
     const accept = $('#d-accept');
-    accept.textContent = day.net ? `Aceptar ${signed(day.net)}` : 'Cerrar sin cambios';
+    accept.textContent = day.net ? T('day.accept', { x: signed(day.net) }) : T('day.closeNoChange');
     accept.className = `btn ${day.net < 0 ? 'btn-danger' : 'btn-earn'}`;
   }
   requestAnimationFrame(() => {
@@ -705,12 +717,12 @@ async function addPhotos(e) {
   const files = [...e.target.files];
   e.target.value = '';
   const room = 4 - dayPhotos.length;
-  if (files.length > room) toast('Máximo 4 fotos por mensaje');
+  if (files.length > room) toast(T('maxPhotos'));
   for (const f of files.slice(0, room)) {
     try {
       dayPhotos.push(await shrink(f));
     } catch {
-      toast('No pude leer esa foto');
+      toast(T('badPhoto'));
     }
   }
   renderThumbs();
@@ -722,8 +734,6 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const synth = window.speechSynthesis;
 // Brave expone la API pero no la conecta a ningún servicio: siempre falla con "network".
 const IS_BRAVE = typeof navigator.brave !== 'undefined';
-const NO_DICTATION =
-  'Este navegador no trae dictado (Brave lo bloquea por privacidad). En el celular toca el micrófono del teclado; en el PC abre la app en Chrome, Edge o Safari.';
 let micWanted = false; // el usuario quiere seguir dictando
 let silentRestarts = 0;
 const SPEAKER_SVG =
@@ -754,8 +764,8 @@ function setRecording(on) {
   const mic = $('#d-mic');
   mic.classList.toggle('rec', on);
   mic.setAttribute('aria-pressed', String(on));
-  mic.setAttribute('aria-label', on ? 'Dejar de dictar' : 'Dictar con la voz');
-  $('#d-text').placeholder = on ? 'Te escucho…' : day ? 'Replica: explica mejor o sube una prueba…' : 'Hoy fui al gym una hora, estudié inglés 2 h y vendí 3 kits por 90 mil…';
+  mic.setAttribute('aria-label', T(on ? 'mic.stop' : 'mic.start'));
+  $('#d-text').placeholder = T(on ? 'day.listening' : day ? 'day.replyPlaceholder' : 'day.placeholder');
 }
 
 function micNote(msg) {
@@ -778,7 +788,7 @@ function stopMic() {
 function toggleMic() {
   if (rec) return stopMic();
   if (!SR || IS_BRAVE) {
-    micNote(NO_DICTATION);
+    micNote(T('noDictation'));
     $('#d-text').focus(); // en el celular abre el teclado, que trae su propio micrófono
     return;
   }
@@ -796,7 +806,7 @@ function listen() {
   recBase = area.value.trim() ? `${area.value.trim()} ` : '';
   let heard = false;
   const r = new SR();
-  r.lang = 'es-CO';
+  r.lang = T('speech.lang');
   r.continuous = true;
   r.interimResults = true;
   r.onresult = (e) => {
@@ -808,12 +818,12 @@ function listen() {
     micWanted = false;
     micNote(
       e.error === 'not-allowed' || e.error === 'service-not-allowed'
-        ? 'Permite el micrófono para este sitio y vuelve a intentar.'
+        ? T('mic.denied')
         : e.error === 'audio-capture'
-          ? 'No encuentro un micrófono conectado.'
+          ? T('mic.none')
           : e.error === 'network'
-            ? 'El dictado no pudo conectarse. Revisa tu internet o usa el micrófono del teclado.'
-            : 'El dictado falló. Intenta otra vez.',
+            ? T('mic.network')
+            : T('mic.failed'),
     );
   };
   r.onend = () => {
@@ -832,17 +842,16 @@ function listen() {
     rec = null;
     micWanted = false;
     setRecording(false);
-    micNote('No pude abrir el micrófono.');
+    micNote(T('mic.open'));
   }
 }
 
 function pickVoice() {
   const voices = synth?.getVoices() || [];
-  voice =
-    voices.find((v) => /^es[-_]CO/i.test(v.lang)) ||
-    voices.find((v) => /^es[-_](MX|US|419)/i.test(v.lang)) ||
-    voices.find((v) => /^es/i.test(v.lang)) ||
-    null;
+  const prefs = LANG === 'es' ? [/^es[-_]CO/i, /^es[-_](MX|US|419)/i, /^es/i] : [/^en[-_]US/i, /^en[-_](GB|AU|CA)/i, /^en/i];
+  voice = null;
+  for (const re of prefs) if ((voice = voices.find((v) => re.test(v.lang)))) break;
+  voice ||= null;
 }
 
 function speak(text) {
@@ -850,34 +859,23 @@ function speak(text) {
   synth.cancel();
   const u = new SpeechSynthesisUtterance(text);
   if (voice) u.voice = voice;
-  u.lang = voice?.lang || 'es-CO';
+  u.lang = voice?.lang || T('speech.lang');
   u.rate = 1.02;
   u.pitch = 0.92;
   synth.speak(u);
 }
 
-function spokenDur(s) {
-  if (!s) return 'nada';
-  const a = Math.abs(s);
-  const d = Math.floor(a / DAY), h = Math.floor((a % DAY) / HOUR), m = Math.floor((a % HOUR) / MIN);
-  const word = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
-  const parts = [
-    d && word(d, 'un día', 'días'),
-    h && word(h, 'una hora', 'horas'),
-    !d && m && word(m, 'un minuto', 'minutos'),
-  ].filter(Boolean);
-  return `${s > 0 ? 'más' : 'menos'} ${parts.join(' y ')}`;
-}
+const spokenDur = (s) => T('speech.dur', { s });
 
 function speakVerdict(turn) {
   const net = turn.items.reduce((sum, it) => sum + it.seconds, 0);
-  speak(`${turn.message} Total del día: ${spokenDur(net)}.`);
+  speak(T('speech.total', { msg: turn.message, dur: spokenDur(net) }));
 }
 
 function renderVoiceToggle() {
   const b = $('#d-voice');
   b.setAttribute('aria-pressed', String(Boolean(saved.voice)));
-  b.setAttribute('aria-label', saved.voice ? 'Dejar de leer en voz alta' : 'Leer los veredictos en voz alta');
+  b.setAttribute('aria-label', T(saved.voice ? 'voice.on' : 'voice.off'));
 }
 
 function toggleVoice() {
@@ -888,7 +886,7 @@ function toggleVoice() {
     // Este toque también "desbloquea" la voz en iPhone para lecturas automáticas posteriores.
     const last = day?.turns.findLast((t) => t.role === 'judge');
     if (last) speakVerdict(last);
-    else speak('Listo. Te leo los veredictos del Guardián.');
+    else speak(T('speech.ready'));
   } else synth?.cancel();
 }
 
@@ -897,8 +895,8 @@ async function sendDay(e) {
   if (dayBusy) return;
   stopMic();
   const text = $('#d-text').value.trim();
-  if (!day && !text) return toast('Cuéntale qué hiciste hoy');
-  if (day && !text && !dayPhotos.length) return toast('Escribe tu réplica o sube una prueba');
+  if (!day && !text) return toast(T('day.empty'));
+  if (day && !text && !dayPhotos.length) return toast(T('day.emptyReply'));
   const images = dayPhotos.map(({ media_type, data }) => ({ media_type, data }));
   pendingMine = { text, photos: images.length };
   dayBusy = true;
@@ -938,7 +936,7 @@ async function acceptDay() {
       clock.flash(r.net > 0 ? 'gain' : 'loss');
       vibrate(r.net > 0 ? 18 : [12, 50, 12]);
     }
-    toast(r.net ? `${signed(r.net)} de vida` : 'Día cerrado sin cambios');
+    toast(r.net ? T('ofLife', { x: signed(r.net) }) : T('day.closed'));
   } catch (err) {
     if (err.status === 404 || err.code === 'closed') closeDay(), renderDay();
     toast(err.message);
@@ -950,7 +948,7 @@ async function discardDay() {
   await api('POST', `/api/day/${day.id}/discard`).catch(() => {});
   closeDay();
   closeSheet($('#sheet-day'));
-  toast('Día descartado');
+  toast(T('day.discarded'));
 }
 
 /* ───────── Transferir tiempo: código + QR ───────── */
@@ -971,7 +969,7 @@ function qrSvg(text) {
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
   const size = n + 2 * q;
   return (
-    `<svg viewBox="${-q} ${-q} ${size} ${size}" shape-rendering="crispEdges" role="img" aria-label="Código QR">` +
+    `<svg viewBox="${-q} ${-q} ${size} ${size}" shape-rendering="crispEdges" role="img" aria-label="${T('qrCode')}">` +
     `<rect x="${-q}" y="${-q}" width="${size}" height="${size}" fill="#eaf8e2"/><path d="${d}" fill="#0c1a08"/></svg>`
   );
 }
@@ -1002,14 +1000,14 @@ function renderShare() {
   const after = (S ? S.expiresAt - now() : 0) - shareAmount * 1000;
   const short = shareAmount > 0 && after < 60_000;
   $('#sh-preview').textContent = !shareAmount
-    ? 'Elige cuánto tiempo regalar.'
+    ? T('share.pick')
     : short
-      ? 'No puedes regalar todo tu tiempo.'
-      : `Sale de tu reloj ya y te quedan ${fmtDur(after / 1000, 3)}. Si nadie lo recibe en 10 min, vuelve.`;
+      ? T('share.all')
+      : T('share.after', { x: fmtDur(after / 1000, 3) });
   $('#sh-preview').classList.toggle('warn', short);
   const create = $('#sh-create');
   create.disabled = !shareAmount || short;
-  create.textContent = shareAmount ? `Crear código de ${fmtDur(shareAmount, 3)}` : 'Crear código';
+  create.textContent = shareAmount ? T('share.createX', { x: fmtDur(shareAmount, 3) }) : T('share.create');
 }
 
 function renderCode() {
@@ -1028,7 +1026,7 @@ function tickCode() {
   const left = Math.max(0, shareCode.expiresAt - now());
   const m = Math.floor(left / 60_000);
   const s = Math.floor(left / 1000) % 60;
-  $('#sh-status').textContent = `${fmtDur(shareCode.seconds, 3)} esperando a alguien · expira en ${m}:${String(s).padStart(2, '0')}`;
+  $('#sh-status').textContent = T('share.waiting', { x: fmtDur(shareCode.seconds, 3), m, ss: String(s).padStart(2, '0') });
   if (left > 0) codeTimer = setTimeout(tickCode, 1000);
   else checkCode();
 }
@@ -1049,11 +1047,11 @@ async function checkCode() {
     if (st.status === 'entregado') {
       endCode();
       vibrate([20, 60, 20]);
-      toast(`¡Entregado! ${st.toName || 'Alguien'} recibió ${fmtDur(st.seconds, 3)} de tu tiempo.`);
+      toast(T('share.delivered', { name: st.toName, x: fmtDur(st.seconds, 3) }));
       refresh();
     } else if (st.status === 'devuelto') {
       endCode();
-      toast('Nadie lo reclamó: el tiempo volvió a tu reloj.');
+      toast(T('share.returned'));
       refresh();
     }
   } catch (err) {
@@ -1092,7 +1090,7 @@ async function cancelCode() {
   if (!shareCode) return;
   try {
     apply((await api('DELETE', `/api/transfer/${shareCode.code}`)).state);
-    toast('Código cancelado: tu tiempo volvió.');
+    toast(T('share.canceled'));
     endCode();
   } catch (err) {
     toast(err.message);
@@ -1102,7 +1100,7 @@ async function cancelCode() {
 
 async function claimCode(raw) {
   const code = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (code.length !== 6) return toast('El código tiene 6 caracteres');
+  if (code.length !== 6) return toast(T('share.sixChars'));
   try {
     const r = await api('POST', '/api/transfer/claim', { code });
     closeSheet($('#sheet-share'));
@@ -1110,7 +1108,7 @@ async function claimCode(raw) {
     apply(r.state);
     clock.flash('gain');
     vibrate([20, 60, 20]);
-    toast(`+${fmtDur(r.seconds, 3)}: ${r.fromName || 'alguien'} te regaló tiempo.`);
+    toast(T('share.got', { x: fmtDur(r.seconds, 3), name: r.fromName }));
   } catch (err) {
     toast(err.message);
   }
@@ -1120,16 +1118,13 @@ async function claimCode(raw) {
 
 let stopScan = null;
 
-const SCAN_TEXT = {
-  code: { title: 'Escanear QR', hint: 'Apunta al QR de quien te regala tiempo.', other: 'Ese QR no es de Tiempo. Busca el de Transferir → Enviar.' },
-  key: { title: 'Escanear llave', hint: 'En tu otro dispositivo: Ajustes → Tu llave → Ver → Mostrar QR.', other: 'Ese QR no es una llave de Tiempo.' },
-};
+const scanText = (mode, what) => T(`scan.${mode}.${what}`);
 
 /** mode: 'code' (regalo de tiempo) o 'key' (abrir tu reloj en este dispositivo). Lee cualquiera de los dos. */
 async function openScanner(mode = 'code') {
   const d = $('#sheet-scan');
-  $('#sc-title').textContent = SCAN_TEXT[mode].title;
-  $('#scan-msg').textContent = SCAN_TEXT[mode].hint;
+  $('#sc-title').textContent = scanText(mode, 'title');
+  $('#scan-msg').textContent = scanText(mode, 'hint');
   $('.viewfinder').classList.remove('hit');
   openSheet(d);
   try {
@@ -1142,10 +1137,10 @@ async function openScanner(mode = 'code') {
           closeSheet(d);
           if (kind === 'key') useKey(value);
           else if (S) claimCode(value);
-          else toast('Primero abre o empieza tu reloj; luego recibe el tiempo.');
+          else toast(T('scan.first'));
         }, 250);
       },
-      onOther: () => ($('#scan-msg').textContent = SCAN_TEXT[mode].other),
+      onOther: () => ($('#scan-msg').textContent = scanText(mode, 'other')),
     });
     if (d.open && !d.dataset.closing) stopScan = stop;
     else stop(); // cerró la hoja mientras pedía permiso
@@ -1153,8 +1148,8 @@ async function openScanner(mode = 'code') {
     closeSheet(d);
     toast(
       err?.name === 'NotAllowedError'
-        ? 'Sin permiso para la cámara: actívalo en los ajustes del celular o escribe el código.'
-        : 'No se pudo abrir la cámara. Escribe el código.',
+        ? T('scan.denied')
+        : T('scan.failed'),
     );
   }
 }
@@ -1171,10 +1166,10 @@ function renderHistory() {
   $('#st-earned').textContent = `+${fmtDur(S.earned)}`;
   $('#st-spent').textContent = `−${fmtDur(S.spent)}`;
   $('#st-lived').textContent = fmtDur((end - S.bornAt) / 1000);
-  $('#h-title').textContent = `Vida ${S.lifeNo}`;
+  $('#h-title').textContent = T('life', { n: S.lifeNo });
   const rec = $('#st-record');
   rec.hidden = !S.record;
-  if (S.record) rec.textContent = `Récord de vidas anteriores: ${fmtDur(S.record / 1000, 3)}`;
+  if (S.record) rec.textContent = T('recordPrev', { x: fmtDur(S.record / 1000, 3) });
 
   const items = [];
   let dayName = '';
@@ -1183,7 +1178,7 @@ function renderHistory() {
     if (label !== dayName) items.push(el('li', 'day', (dayName = label)));
     const li = el('li', 'item');
     const info = el('span', 'info');
-    info.append(el('span', 'note', t.note || labelOf(t)));
+    info.append(el('span', 'note', noteOf(t) || labelOf(t)));
     const detail = detailOf(t);
     if (detail) info.append(el('small', 'detail', detail));
     li.append(el('span', `amt ${t.seconds > 0 ? 'up' : 'down'}`, signed(t.seconds)), info, el('time', null, dtTime.format(t.at)));
@@ -1211,7 +1206,7 @@ async function start() {
     $('#intro-name').value = '';
     openSettings(true);
     $('#link-input').value = pasted[0];
-    return toast('Eso es una llave: tócale «Usar» para abrir tu reloj');
+    return toast(T('isKey'));
   }
   const b = $('#btn-start');
   b.disabled = true;
@@ -1234,14 +1229,15 @@ async function claimGift({ ask = false } = {}) {
   giftCode = null;
   await new Promise((r) => setTimeout(r, 600));
   if (ask && !standalone) {
-    const name = S?.nickname ? `${S.nickname} · Vida ${S.lifeNo}` : `Vida ${S?.lifeNo ?? 1}`;
+    const life = T('life', { n: S?.lifeNo ?? 1 });
+    const name = S?.nickname ? `${S.nickname} · ${life}` : life;
     const ok = await confirmSheet({
-      title: '¿Recibir en este reloj?',
-      text: `Se sumará al reloj de este navegador (${name}). Si usas Tiempo instalado como app, mejor ábrela y en Transferir → Recibir escanea el QR o escribe el código ${code}.`,
-      ok: 'Recibir aquí',
+      title: T('gift.title'),
+      text: T('gift.text', { name, code }),
+      ok: T('gift.ok'),
       danger: false,
     });
-    if (!ok) return toast(`Tu código: ${code}`);
+    if (!ok) return toast(T('gift.yourCode', { code }));
   }
   claimCode(code);
 }
@@ -1252,7 +1248,7 @@ async function rebirth(force = false) {
     apply(r.state);
     clock.flash('gain');
     vibrate(30);
-    toast(`Vida ${r.state.lifeNo}. Tienes ${fmtLong(r.state.initialSeconds)}.`);
+    toast(T('reborn', { n: r.state.lifeNo, x: fmtLong(r.state.initialSeconds) }));
   } catch (err) {
     toast(err.message);
   }
@@ -1279,13 +1275,6 @@ async function refresh() {
 
 /* ───────── ajustes ───────── */
 
-const PUSH_TEXT = {
-  on: 'Activas: te avisamos a 24 h, 1 h y 10 min del final.',
-  off: 'Te avisamos a 24 h, 1 h y 10 min del final, aunque la app esté cerrada.',
-  denied: 'Bloqueadas. Actívalas en los ajustes del navegador.',
-  ios: 'En iPhone, primero instala la app (Compartir → Agregar a inicio).',
-  unsupported: 'Este navegador no soporta alertas.',
-};
 
 async function pushStatus() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
@@ -1303,7 +1292,7 @@ const userTz = () => {
     return '';
   }
 };
-const REMIND_TEXT = { 21600: '6 horas', 43200: '12 horas', 86400: 'un día' };
+const remindText = (every) => T(`remind.${every}`);
 
 async function renderRemind() {
   const every = S?.remindEvery ?? 43200;
@@ -1312,10 +1301,8 @@ async function renderRemind() {
   }
   const st = await pushStatus();
   $('#remind-status').textContent = !every
-    ? 'Apagado: no te recordamos nada.'
-    : st === 'on'
-      ? `Si en ${REMIND_TEXT[every]} no le cuentas nada al Guardián, te lo recordamos. Nunca de noche.`
-      : `Cada ${REMIND_TEXT[every]} sin contarle nada al Guardián te lo recordamos, pero primero activa las alertas.`;
+    ? T('remind.off')
+    : T(st === 'on' ? 'remind.on' : 'remind.needsPush', { x: remindText(every) });
 }
 
 async function setRemind(e) {
@@ -1325,9 +1312,9 @@ async function setRemind(e) {
   try {
     apply((await api('PATCH', '/api/me', { remindEvery: every, tz: userTz() })).state);
     await renderRemind();
-    if (!every) toast('Recordatorio apagado');
-    else if ((await pushStatus()) === 'on') toast(`Listo: te recordamos cada ${REMIND_TEXT[every]} sin contar tu día`);
-    else toast('Ahora activa las alertas para recibirlo');
+    if (!every) toast(T('remind.offToast'));
+    else if ((await pushStatus()) === 'on') toast(T('remind.onToast', { x: remindText(every) }));
+    else toast(T('remind.pushToast'));
   } catch (err) {
     toast(err.message);
   }
@@ -1336,9 +1323,9 @@ async function setRemind(e) {
 async function renderPush() {
   renderRemind();
   const st = await pushStatus();
-  $('#push-status').textContent = PUSH_TEXT[st];
+  $('#push-status').textContent = T(`push.${st}`);
   const b = $('#btn-push');
-  b.textContent = st === 'on' ? 'Desactivar' : 'Activar';
+  b.textContent = T(st === 'on' ? 'push.turnOff' : 'push.turnOn');
   b.disabled = st !== 'on' && st !== 'off';
   b.dataset.state = st;
 }
@@ -1359,17 +1346,17 @@ async function togglePush() {
         await api('DELETE', '/api/push', { endpoint: current.endpoint }).catch(() => {});
         await current.unsubscribe();
       }
-      toast('Alertas desactivadas');
+      toast(T('push.offToast'));
     } else {
-      if ((await Notification.requestPermission()) !== 'granted') throw new Error('Sin permiso para notificar');
+      if ((await Notification.requestPermission()) !== 'granted') throw new Error(T('push.noPermission'));
       const { publicKey } = await api('GET', '/api/push/key');
       await current?.unsubscribe();
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(publicKey) });
       await api('POST', '/api/push', { ...sub.toJSON(), tz: userTz() });
-      toast('Alertas activadas');
+      toast(T('push.onToast'));
     }
   } catch (err) {
-    toast(err.message || 'No se pudieron activar las alertas');
+    toast(err.message || T('push.failed'));
   }
   await renderPush();
 }
@@ -1395,11 +1382,11 @@ function renderInstall() {
   if (installEvent) {
     row.hidden = false;
     $('#btn-install').hidden = false;
-    hint.textContent = 'Ponla en tu pantalla de inicio. Abre al instante y funciona sin conexión.';
+    hint.textContent = T('install.hint');
   } else if (isIOS) {
     row.hidden = false;
     $('#btn-install').hidden = true;
-    hint.textContent = 'En Safari: Compartir → Agregar a pantalla de inicio.';
+    hint.textContent = T('install.ios');
   } else row.hidden = true;
 }
 
@@ -1409,13 +1396,27 @@ function openSettings(focusLink = false) {
   $('#key-text').textContent = maskKey(saved.token);
   $('#name-input').value = S?.nickname || '';
   renderNameCount();
-  $('#rate-text').textContent = `1 día de vida = ${cop.format(DAY_VALUE)}, un salario mínimo diario (${cop.format(MIN_WAGE)} al mes).`;
+  $('#rate-text').textContent = T('rate', { dv: cop.format(DAY_VALUE), mw: cop.format(MIN_WAGE) });
+  renderLang();
   $('#foot').textContent = `Tiempo · ${VERSION}`;
   renderInstall();
   renderPush();
   $('#btn-scan-key').hidden = !canScan();
   openSheet($('#sheet-settings'));
   if (focusLink) setTimeout(() => $('#link-input').focus(), 380);
+}
+
+function renderLang() {
+  for (const b of document.querySelectorAll('#lang-seg button')) b.setAttribute('aria-checked', String(b.dataset.lang === LANG));
+}
+
+/** Cambia el idioma: queda en este teléfono y la app recarga ya traducida (el servidor lo sabe por X-Lang). */
+function setLang(e) {
+  const lang = e.target.closest('button[data-lang]')?.dataset.lang;
+  if (!lang || lang === LANG) return;
+  if (!saveLang(lang)) return toast(T('net.failed'));
+  vibrate(10);
+  location.reload();
 }
 
 /* ───────── tu llave y tu nombre ───────── */
@@ -1428,8 +1429,8 @@ let keyIsWelcome = false;
 function openKeySheet(welcome = false) {
   keyIsWelcome = welcome;
   $('#key-full').textContent = saved.token || '';
-  $('#k-title').textContent = welcome ? 'Esta es tu llave' : 'Tu llave';
-  $('#k-done').textContent = welcome ? 'Ya la guardé' : 'Listo';
+  $('#k-title').textContent = T(welcome ? 'key.welcome' : 'key.title');
+  $('#k-done').textContent = T(welcome ? 'key.saved' : 'key.done');
   $('#key-qr').hidden = true; // escondido hasta que lo pida: que nadie lo fotografíe sin querer
   $('#k-qr').hidden = false;
   resetCopyButton();
@@ -1439,7 +1440,7 @@ function openKeySheet(welcome = false) {
 function resetCopyButton() {
   const b = $('#k-copy');
   b.classList.remove('done');
-  b.textContent = 'Copiar llave';
+  b.textContent = T('key.copy');
 }
 
 /** Selecciona la llave en pantalla, para copiarla a mano si el portapapeles no está disponible. */
@@ -1457,14 +1458,14 @@ async function copyKey() {
     await navigator.clipboard.writeText(saved.token);
   } catch {
     selectKey();
-    toast('No pude copiarla sola: ya está seleccionada, cópiala tú.');
+    toast(T('key.copyFailed'));
     return;
   }
   vibrate(15);
   // La confirmación se queda mientras la hoja esté abierta: que no quede duda de que se copió.
   b.classList.add('done');
-  b.textContent = '✓ Llave copiada';
-  toast('Llave copiada. Pégala en tus notas o en un lugar seguro.');
+  b.textContent = T('key.copied');
+  toast(T('key.copiedToast'));
 }
 
 function keyDone() {
@@ -1479,7 +1480,7 @@ function keyClosed() {
   if (!keyIsWelcome) return;
   keyIsWelcome = false;
   if (giftCode) claimGift();
-  else toast('Tu tiempo empezó a correr.');
+  else toast(T('started'));
 }
 
 function renderNameCount() {
@@ -1490,13 +1491,13 @@ function renderNameCount() {
 async function saveName(e) {
   e.preventDefault();
   const input = $('#name-input');
-  if (KEY_IN_TEXT.test(input.value)) return toast('Tu llave no puede ser tu nombre: nadie debe verla');
+  if (KEY_IN_TEXT.test(input.value)) return toast(T('name.isKey'));
   try {
     apply((await api('PATCH', '/api/me', { nickname: input.value })).state);
     input.value = S.nickname;
     renderNameCount();
     input.blur();
-    toast(S.nickname ? `Listo, ${S.nickname}.` : 'Nombre borrado');
+    toast(S.nickname ? T('name.saved', { name: S.nickname }) : T('name.removed'));
   } catch (err) {
     toast(err.message);
   }
@@ -1505,9 +1506,9 @@ async function saveName(e) {
 async function rotateKey() {
   closeSheet($('#sheet-settings'));
   const ok = await confirmSheet({
-    title: '¿Cambiar tu llave?',
-    text: 'Te damos una llave nueva para este mismo reloj: tu tiempo no cambia. La vieja deja de servir, así que en tus otros dispositivos tendrás que abrirlo de nuevo con la nueva (escaneando su QR).',
-    ok: 'Cambiar llave',
+    title: T('rotate.title'),
+    text: T('rotate.text'),
+    ok: T('rotate.ok'),
   });
   if (!ok) return;
   try {
@@ -1518,8 +1519,8 @@ async function rotateKey() {
     persist();
     syncPush();
     openKeySheet(false);
-    $('#k-title').textContent = 'Tu llave nueva';
-    toast('Llave cambiada. Guárdala: la anterior ya no sirve.');
+    $('#k-title').textContent = T('key.new');
+    toast(T('rotate.done'));
   } catch (err) {
     toast(err.message);
   }
@@ -1533,14 +1534,14 @@ function linkKey(e) {
 /** Abre en este dispositivo el reloj de esa llave (pegada o escaneada). La llave actual nunca se pierde. */
 async function useKey(key) {
   const input = $('#link-input');
-  if (!/^tk_[\w-]{16,}$/.test(key)) return toast('Esa llave no es válida');
-  if (key === saved.token) return toast('Ya estás usando esa llave');
+  if (!/^tk_[\w-]{16,}$/.test(key)) return toast(T('use.invalid'));
+  if (key === saved.token) return toast(T('use.same'));
   closeSheet($('#sheet-settings'));
   if (saved.token) {
     const ok = await confirmSheet({
-      title: '¿Usar otra llave?',
-      text: 'Este dispositivo mostrará ese reloj. Tu llave actual queda guardada aquí por si quieres volver.',
-      ok: 'Cambiar',
+      title: T('use.title'),
+      text: T('use.text'),
+      ok: T('use.ok'),
     });
     if (!ok) return;
   }
@@ -1556,13 +1557,13 @@ async function useKey(key) {
     shareCode = null;
     saved.share = null;
     persist();
-    toast('Reloj vinculado');
+    toast(T('use.done'));
     syncPush();
     if (giftCode) claimGift();
   } catch (err) {
     saved.token = prev;
     persist();
-    toast(err.status === 401 ? 'Esa llave no existe' : err.message);
+    toast(err.status === 401 ? T('use.missing') : err.message);
   }
 }
 
@@ -1570,9 +1571,9 @@ async function resetLife() {
   closeSheet($('#sheet-settings'));
   const rem = S ? Math.max(0, S.expiresAt - now()) / 1000 : 0;
   const ok = await confirmSheet({
-    title: '¿Empezar de nuevo?',
-    text: `Pierdes esta vida${rem ? ` y los ${fmtDur(rem, 3)} que te quedan` : ''}. Renaces con ${fmtLong(S?.initialSeconds || INITIAL)}.`,
-    ok: 'Reiniciar',
+    title: T('reset.title'),
+    text: T('reset.text', { rem: rem ? fmtDur(rem, 3) : '', x: fmtLong(S?.initialSeconds || INITIAL) }),
+    ok: T('reset.ok'),
   });
   if (ok) rebirth(true);
 }
@@ -1720,6 +1721,7 @@ document.addEventListener('visibilitychange', () => {
 // Ajustes
 $('#btn-push').addEventListener('click', togglePush);
 $('#remind-seg').addEventListener('click', setRemind);
+$('#lang-seg').addEventListener('click', setLang);
 $('#btn-install').addEventListener('click', async () => {
   if (!installEvent) return;
   installEvent.prompt();
@@ -1767,6 +1769,7 @@ addEventListener('online', refresh);
 
 /* ───────── arranque ───────── */
 
+translatePage({ n: DAYS_PER_DAY });
 render(); // pinta al instante con lo guardado; luego sincroniza
 registerSW();
 navigator.storage?.persist?.().catch(() => {});

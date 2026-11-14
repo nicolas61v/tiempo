@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
-import { openStore, AppError, DAYS_PER_DAY } from './store.js';
+import { openStore, AppError, DAYS_PER_DAY, cleanLang } from './store.js';
 import { createPush } from './push.js';
 import { createJudge } from './judge.js';
 import { loadStatic, serveStatic } from './static.js';
@@ -74,13 +74,13 @@ function readJson(req, limit = 8192) {
       if (size <= limit) chunks.push(c);
     });
     req.on('end', () => {
-      if (size > limit) return reject(new AppError(413, 'too_big', 'Petición demasiado grande'));
+      if (size > limit) return reject(new AppError(413, 'too_big', 'Petición demasiado grande', 'Request too large'));
       if (!chunks.length) return resolve({});
       try {
         const v = JSON.parse(Buffer.concat(chunks));
         resolve(v && typeof v === 'object' ? v : {});
       } catch {
-        reject(new AppError(400, 'json', 'JSON inválido'));
+        reject(new AppError(400, 'json', 'JSON inválido', 'Invalid JSON'));
       }
     });
     req.on('error', reject);
@@ -128,32 +128,39 @@ async function runJudge(id, dayId) {
 }
 
 function requireJudge() {
-  if (!judge.enabled) throw new AppError(503, 'judge_off', 'El Guardián no está configurado: falta ANTHROPIC_API_KEY.');
+  if (!judge.enabled) {
+    throw new AppError(503, 'judge_off', 'El Guardián no está configurado: falta ANTHROPIC_API_KEY.', 'The Guardian is not configured: ANTHROPIC_API_KEY is missing.');
+  }
 }
 
 /* ───────── API ───────── */
 
+/** Idioma de la app que hace la petición ('en' o 'es'); '' si no lo manda (una versión vieja, en español). */
+const langOf = (req) => cleanLang(req.headers['x-lang']);
+
 async function api(req, res, p) {
   const m = req.method;
+  const lang = langOf(req);
 
   if (m === 'POST' && p === '/api/session') {
-    if (!limitSessions(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un rato');
+    if (!limitSessions(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un rato', 'Too many attempts, wait a while');
     const b = await readJson(req);
-    return send(res, 201, store.createUser({ nickname: b.nickname, deviceId: b.deviceId, ip: clientIp(req) }));
+    return send(res, 201, store.createUser({ nickname: b.nickname, deviceId: b.deviceId, ip: clientIp(req), lang }));
   }
 
   if (m === 'GET' && p === '/api/admin/stats') {
-    if (!config.adminToken) throw new AppError(404, 'not_found', 'Ruta desconocida');
-    if (!limitAdmin(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un minuto');
+    if (!config.adminToken) throw new AppError(404, 'not_found', 'Ruta desconocida', 'Unknown route');
+    if (!limitAdmin(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un minuto', 'Too many attempts, wait a minute');
     if (!isAdmin(req)) throw new AppError(401, 'admin', 'Clave de administrador incorrecta');
     return send(res, 200, store.adminStats());
   }
   if (m === 'GET' && p === '/api/push/key') return send(res, 200, { publicKey: push.publicKey });
 
   const user = store.auth(bearer(req));
-  if (!user) throw new AppError(401, 'auth', 'Llave inválida');
-  if (!limitApi(user.id)) throw new AppError(429, 'rate', 'Más despacio');
+  if (!user) throw new AppError(401, 'auth', 'Llave inválida', 'Invalid key');
+  if (!limitApi(user.id)) throw new AppError(429, 'rate', 'Más despacio', 'Slow down');
   const id = user.id;
+  if (lang && user.lang !== lang) store.setLang(id, lang); // así los avisos push y el Guardián le hablan en su idioma
 
   if (m === 'GET' && p === '/api/state') return send(res, 200, store.state(id));
 
@@ -204,7 +211,7 @@ async function api(req, res, p) {
     return send(res, 201, store.createTransfer(id, b.seconds));
   }
   if (m === 'POST' && p === '/api/transfer/claim') {
-    if (!limitClaims(id)) throw new AppError(429, 'rate', 'Demasiados intentos, espera un minuto');
+    if (!limitClaims(id)) throw new AppError(429, 'rate', 'Demasiados intentos, espera un minuto', 'Too many attempts, wait a minute');
     const b = await readJson(req);
     const r = store.claimTransfer(id, b.code);
     push
@@ -223,7 +230,7 @@ async function api(req, res, p) {
     return send(res, 204);
   }
 
-  throw new AppError(404, 'not_found', 'Ruta desconocida');
+  throw new AppError(404, 'not_found', 'Ruta desconocida', 'Unknown route');
 }
 
 /* ───────── servidor ───────── */
@@ -237,9 +244,10 @@ const server = http.createServer(async (req, res) => {
     if ((req.method === 'GET' || req.method === 'HEAD') && serveStatic(req, res, site, p)) return;
     send(res, 404, { error: 'not_found' });
   } catch (err) {
-    if (err instanceof AppError) return send(res, err.status, { error: err.code, message: err.message });
+    const lang = langOf(req);
+    if (err instanceof AppError) return send(res, err.status, { error: err.code, message: err.text(lang) });
     log.error(err);
-    if (!res.headersSent) send(res, 500, { error: 'server', message: 'Algo falló en el servidor' });
+    if (!res.headersSent) send(res, 500, { error: 'server', message: lang === 'en' ? 'Something went wrong on the server' : 'Algo falló en el servidor' });
   }
 });
 

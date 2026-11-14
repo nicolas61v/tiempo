@@ -6,15 +6,8 @@ const MONTH = YEAR / 12; // 30 d 10 h, exacto en segundos
 const WEEK = 604_800;
 const DAY = 86_400;
 
-const GROUPS = [
-  ['y', 'años'],
-  ['mo', 'meses'],
-  ['w', 'sem'],
-  ['d', 'días'],
-  ['h', 'horas'],
-  ['m', 'min'],
-  ['s', 'seg'],
-];
+const KEYS = ['y', 'mo', 'w', 'd', 'h', 'm', 's'];
+const UNITS_ES = ['años', 'meses', 'sem', 'días', 'horas', 'min', 'seg'];
 
 const p2 = (n) => String(n).padStart(2, '0');
 
@@ -30,14 +23,16 @@ export function split(ms) {
 }
 
 export class Clock {
-  constructor(host) {
+  /** units: los 7 nombres bajo los números; ariaLabel(partes): lo que lee el lector de pantalla. */
+  constructor(host, { units = UNITS_ES, ariaLabel } = {}) {
     this.host = host;
+    this.ariaLabel = ariaLabel;
     host.innerHTML =
       '<div class="readout">' +
-      GROUPS.map(
-        ([k, label], i) =>
+      KEYS.map(
+        (k, i) =>
           (i ? '<span class="colon" aria-hidden="true">:</span>' : '') +
-          `<span class="grp"><span class="num" data-k="${k}"></span><span class="unit" aria-hidden="true">${label}</span></span>`,
+          `<span class="grp"><span class="num" data-k="${k}"></span><span class="unit" aria-hidden="true">${units[i]}</span></span>`,
       ).join('') +
       '</div>';
     this.readout = host.firstElementChild;
@@ -77,9 +72,7 @@ export class Clock {
     const minute = Math.floor(ms / 60_000);
     if (minute !== this.minute) {
       this.minute = minute;
-      const units = [[t.y, 'año', 'años'], [t.mo, 'mes', 'meses'], [t.w, 'semana', 'semanas'], [t.d, 'día', 'días'], [t.h, 'hora', 'horas'], [t.m, 'minuto', 'minutos']];
-      const parts = units.filter(([v]) => v).map(([v, one, many]) => `${v} ${v === 1 ? one : many}`);
-      this.host.setAttribute('aria-label', parts.length ? `Quedan ${parts.join(', ')}` : 'Tiempo agotado');
+      if (this.ariaLabel) this.host.setAttribute('aria-label', this.ariaLabel(t));
     }
   }
 

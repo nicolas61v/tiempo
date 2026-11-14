@@ -1,19 +1,36 @@
 import webpush from 'web-push';
 
+// Avisos en el idioma de la app de cada persona (por defecto inglés).
 const MESSAGES = {
-  86400: { title: 'Menos de 24 horas', body: 'Tu reloj entró en su último día. Gana tiempo.' },
-  3600: { title: 'Menos de una hora', body: 'El reloj no espera. Muévete.' },
-  600: { title: 'Quedan 10 minutos', body: 'Último aviso antes de que se agote tu tiempo.' },
-  0: { title: 'Tiempo agotado', body: 'Tu reloj llegó a cero. Puedes renacer.' },
+  es: {
+    86400: { title: 'Menos de 24 horas', body: 'Tu reloj entró en su último día. Gana tiempo.' },
+    3600: { title: 'Menos de una hora', body: 'El reloj no espera. Muévete.' },
+    600: { title: 'Quedan 10 minutos', body: 'Último aviso antes de que se agote tu tiempo.' },
+    0: { title: 'Tiempo agotado', body: 'Tu reloj llegó a cero. Puedes renacer.' },
+  },
+  en: {
+    86400: { title: 'Less than 24 hours', body: 'Your clock is on its last day. Earn time.' },
+    3600: { title: 'Less than an hour', body: "The clock doesn't wait. Move." },
+    600: { title: '10 minutes left', body: 'Last warning before your time runs out.' },
+    0: { title: "Time's up", body: 'Your clock hit zero. You can be reborn.' },
+  },
 };
+export const alertFor = (band, lang) => (MESSAGES[lang] || MESSAGES.en)[band];
 
 // Recordatorio de "Mi día", según la hora de la persona.
-const REMINDERS = [
-  { until: 12, title: '¿Cómo va tu día?', body: 'Cuéntale al Guardián lo que llevas: lo bueno suma tiempo.' },
-  { until: 18, title: '¿Qué has hecho hoy?', body: 'Cuéntale al Guardián antes de que se te olvide.' },
-  { until: 24, title: 'Antes de que acabe el día', body: 'Cuéntale al Guardián qué hiciste. Lo que no le cuentas no suma.' },
-];
-export const reminderFor = (hour) => REMINDERS.find((r) => hour < r.until);
+const REMINDERS = {
+  es: [
+    { until: 12, title: '¿Cómo va tu día?', body: 'Cuéntale al Guardián lo que llevas: lo bueno suma tiempo.' },
+    { until: 18, title: '¿Qué has hecho hoy?', body: 'Cuéntale al Guardián antes de que se te olvide.' },
+    { until: 24, title: 'Antes de que acabe el día', body: 'Cuéntale al Guardián qué hiciste. Lo que no le cuentas no suma.' },
+  ],
+  en: [
+    { until: 12, title: "How's your day going?", body: "Tell the Guardian what you've done so far: the good stuff adds time." },
+    { until: 18, title: 'What have you done today?', body: 'Tell the Guardian before you forget.' },
+    { until: 24, title: 'Before the day ends', body: "Tell the Guardian what you did. What you don't tell it doesn't count." },
+  ],
+};
+export const reminderFor = (hour, lang) => (REMINDERS[lang] || REMINDERS.en).find((r) => hour < r.until);
 
 const SWEEP_MS = 15_000;
 
@@ -54,12 +71,12 @@ export function createPush(store, { subject, publicKey, privateKey, log }) {
     running = true;
     try {
       const due = store.claimAlerts(Date.now());
-      await Promise.all(due.map((a) => sendToUser(a.userId, { ...MESSAGES[a.band], band: a.band, expiresAt: a.expiresAt })));
+      await Promise.all(due.map((a) => sendToUser(a.userId, { ...alertFor(a.band, a.lang), band: a.band, expiresAt: a.expiresAt })));
       // Un recordatorio viejo no sirve: si el teléfono no lo recibe en 2 h, se descarta.
       const reminders = store.claimReminders(Date.now());
       await Promise.all(
         reminders.map((r) => {
-          const { title, body } = reminderFor(r.hour);
+          const { title, body } = reminderFor(r.hour, r.lang);
           return sendToUser(r.userId, { title, body, kind: 'remind' }, { topic: 'recordatorio', urgency: 'normal', ttl: 2 * 3600 });
         }),
       );

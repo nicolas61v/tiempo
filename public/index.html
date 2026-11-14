@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#030504">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Tu reloj de vida. Empiezas con una semana.">
+  <meta name="description" content="Your life clock. You start with one week.">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -25,46 +25,46 @@
 <body data-phase="boot" data-mood="ok">
   <main class="app">
     <header class="top">
-      <button class="icon-btn" id="btn-history" type="button" aria-label="Historial">
+      <button class="icon-btn" id="btn-history" type="button" aria-label="History" data-i18n-aria="a.history">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg>
       </button>
       <span class="life" id="life"></span>
-      <button class="icon-btn" id="btn-settings" type="button" aria-label="Ajustes">
+      <button class="icon-btn" id="btn-settings" type="button" aria-label="Settings" data-i18n-aria="a.settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
       </button>
     </header>
 
     <section class="stage">
-      <p class="status" id="status">Tu reloj</p>
+      <p class="status" id="status">Your clock</p>
       <div class="clock" id="clock" role="timer"></div>
       <p class="expiry" id="expiry"></p>
       <p class="gift" id="gift" hidden></p>
       <div class="recover" id="recover" hidden>
-        <p>No encontramos tu reloj en el servidor, pero tu llave sigue guardada en este teléfono.</p>
-        <button class="pill" id="btn-recover" type="button">Reintentar</button>
+        <p data-i18n="recover.text">We couldn't find your clock on the server, but your key is still saved on this phone.</p>
+        <button class="pill" id="btn-recover" type="button" data-i18n="recover.btn">Retry</button>
       </div>
-      <p class="intro">Empiezas con <b id="intro-initial">1 semana</b>. Vivir cuesta un día por día. Cada día cuéntale al Guardián qué hiciste: él decide qué te suma y qué te resta. Tienes <b>__DAYS_PER_DAY__ charlas</b> con él por día; se renuevan a medianoche. Si tu reloj llega a cero, se acabó.</p>
+      <p class="intro" data-i18n-html="intro">You start with <b id="intro-initial">1 week</b>. Living costs one day per day. Every day, tell the Guardian what you did: it decides what adds time and what takes it away. You get <b>__DAYS_PER_DAY__ chats</b> with it a day; they reset at midnight. If your clock hits zero, it's over.</p>
       <button class="last" id="last" type="button" hidden></button>
     </section>
 
     <footer class="dock dock-start">
-      <input class="field name-field" id="intro-name" maxlength="32" placeholder="Tu nombre o apodo (opcional)" autocomplete="nickname" enterkeyhint="go" aria-label="Tu nombre o apodo, máximo 32 caracteres">
-      <button class="btn btn-earn" id="btn-start" type="button">Empezar</button>
-      <button class="link" id="btn-have-key" type="button">Ya tengo una llave</button>
+      <input class="field name-field" id="intro-name" maxlength="32" placeholder="Your name or nickname (optional)" data-i18n-ph="ph.name" autocomplete="nickname" enterkeyhint="go" aria-label="Your name or nickname, up to 32 characters" data-i18n-aria="a.name">
+      <button class="btn btn-earn" id="btn-start" type="button" data-i18n="start">Start</button>
+      <button class="link" id="btn-have-key" type="button" data-i18n="haveKey">I already have a key</button>
     </footer>
     <footer class="dock dock-alive">
       <button class="orb" id="btn-money" type="button">
-        <span class="ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3"/></svg></span>Dinero
+        <span class="ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3"/></svg></span><span data-i18n="orb.money">Money</span>
       </button>
       <button class="orb orb-main" id="btn-day" type="button">
-        <span class="ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 4.5h13a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5H12l-4.5 3.5V16h-2A1.5 1.5 0 0 1 4 14.5V6a1.5 1.5 0 0 1 1.5-1.5z"/><path d="M8 9h8M8 12h5"/></svg></span>Mi día
+        <span class="ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 4.5h13a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5H12l-4.5 3.5V16h-2A1.5 1.5 0 0 1 4 14.5V6a1.5 1.5 0 0 1 1.5-1.5z"/><path d="M8 9h8M8 12h5"/></svg></span><span data-i18n="orb.day">My day</span>
       </button>
       <button class="orb" id="btn-share" type="button">
-        <span class="ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14l-4-4M20 16H6l4 4"/></svg></span>Transferir
+        <span class="ring"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14l-4-4M20 16H6l4 4"/></svg></span><span data-i18n="orb.share">Transfer</span>
       </button>
     </footer>
     <footer class="dock dock-dead">
-      <button class="btn btn-earn" id="btn-rebirth" type="button">Renacer</button>
+      <button class="btn btn-earn" id="btn-rebirth" type="button">Be reborn</button>
     </footer>
   </main>
 
@@ -74,29 +74,29 @@
   </div>
 
   <!-- Ganar / gastar -->
-  <dialog class="sheet" id="sheet-tx" aria-label="Mover tiempo">
+  <dialog class="sheet" id="sheet-tx" aria-label="Move time" data-i18n-aria="a.tx">
     <form class="sheet-body" id="tx-form" novalidate>
       <div class="grip"></div>
       <div class="seg" role="tablist">
-        <button type="button" role="tab" data-mode="earn">Ganar</button>
-        <button type="button" role="tab" data-mode="spend">Gastar</button>
+        <button type="button" role="tab" data-mode="earn" data-i18n="earn">Earn</button>
+        <button type="button" role="tab" data-mode="spend" data-i18n="spend">Spend</button>
       </div>
-      <div class="cats" id="tx-cats" role="group" aria-label="Categoría"></div>
+      <div class="cats" id="tx-cats" role="group" aria-label="Category" data-i18n-aria="a.category"></div>
       <p class="cat-hint" id="tx-hint"></p>
       <div class="amount">
         <output class="amount-value" id="tx-amount">0m</output>
         <p class="formula" id="tx-formula"></p>
-        <button type="button" class="link clear" id="tx-clear">Borrar</button>
+        <button type="button" class="link clear" id="tx-clear" data-i18n="clear">Clear</button>
       </div>
       <label class="money" id="tx-money-wrap">
         <span aria-hidden="true">$</span>
-        <input id="tx-money" inputmode="numeric" placeholder="0" autocomplete="off" enterkeyhint="done" aria-label="Valor en pesos">
+        <input id="tx-money" inputmode="numeric" placeholder="0" autocomplete="off" enterkeyhint="done" aria-label="Amount in Colombian pesos" data-i18n-aria="a.pesos">
       </label>
       <div class="chips" id="tx-chips"></div>
       <div class="suggest" id="tx-suggest"></div>
-      <input class="field" id="tx-note" maxlength="80" placeholder="¿En qué? (opcional)" autocomplete="off" enterkeyhint="done">
+      <input class="field" id="tx-note" maxlength="80" placeholder="What for? (optional)" data-i18n-ph="ph.what" autocomplete="off" enterkeyhint="done">
       <p class="preview" id="tx-preview"></p>
-      <button type="submit" class="btn btn-earn" id="tx-submit" disabled>Ganar</button>
+      <button type="submit" class="btn btn-earn" id="tx-submit" disabled>Earn</button>
     </form>
   </dialog>
 
@@ -106,33 +106,33 @@
       <div class="grip"></div>
       <div class="day-head">
         <div>
-          <h2 class="sheet-title" id="d-title">Mi día</h2>
-          <p class="row-s">Cuéntale (o díctale) al Guardián qué hiciste. Gym y estudio necesitan foto; la plata va en tu palabra.</p>
+          <h2 class="sheet-title" id="d-title" data-i18n="day.title">My day</h2>
+          <p class="row-s" data-i18n="day.sub">Tell (or dictate to) the Guardian what you did. Gym and study need a photo; money goes on your word.</p>
         </div>
-        <button class="icon-btn" id="d-voice" type="button" aria-pressed="false" aria-label="Leer los veredictos en voz alta" hidden>
+        <button class="icon-btn" id="d-voice" type="button" aria-pressed="false" aria-label="Read verdicts aloud" data-i18n-aria="a.readAloud" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
         </button>
       </div>
       <div class="thread" id="d-thread"></div>
       <form class="composer" id="d-form">
         <div class="thumbs" id="d-thumbs"></div>
-        <textarea class="field area" id="d-text" rows="3" maxlength="2000" placeholder="Hoy fui al gym una hora, estudié inglés 2 h y vendí 3 kits por 90 mil…"></textarea>
+        <textarea class="field area" id="d-text" rows="3" maxlength="2000" placeholder=""></textarea>
         <div class="composer-row">
           <label class="pill photo-btn">
             <input type="file" id="d-file" accept="image/*" multiple hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Foto
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="photo">Photo</span>
           </label>
-          <button class="pill mic-btn" id="d-mic" type="button" aria-pressed="false" aria-label="Dictar con la voz" hidden>
+          <button class="pill mic-btn" id="d-mic" type="button" aria-pressed="false" aria-label="Dictate with your voice" data-i18n-aria="a.dictate" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
           </button>
-          <button class="btn btn-earn" id="d-send" type="submit">Enviar al Guardián</button>
+          <button class="btn btn-earn" id="d-send" type="submit">Send to Guardian</button>
         </div>
         <p class="row-s mic-note" id="d-mic-note" role="status" hidden></p>
         <p class="row-s" id="d-left"></p>
       </form>
       <div class="day-actions" id="d-actions" hidden>
-        <button class="btn btn-earn" id="d-accept" type="button">Aceptar</button>
-        <button class="link" id="d-discard" type="button">Descartar este día</button>
+        <button class="btn btn-earn" id="d-accept" type="button">Accept</button>
+        <button class="link" id="d-discard" type="button" data-i18n="day.discard">Discard this day</button>
       </div>
     </div>
   </dialog>
@@ -141,33 +141,33 @@
   <dialog class="sheet" id="sheet-share" aria-labelledby="sh-title">
     <div class="sheet-body">
       <div class="grip"></div>
-      <h2 class="sheet-title" id="sh-title">Transferir tiempo</h2>
+      <h2 class="sheet-title" id="sh-title" data-i18n="share.title">Transfer time</h2>
       <div class="seg" role="tablist">
-        <button type="button" role="tab" data-tab="send">Enviar</button>
-        <button type="button" role="tab" data-tab="recv">Recibir</button>
+        <button type="button" role="tab" data-tab="send" data-i18n="send">Send</button>
+        <button type="button" role="tab" data-tab="recv" data-i18n="receive">Receive</button>
       </div>
       <section class="pane" id="sh-send">
         <div class="amount">
           <output class="amount-value" id="sh-amount">0m</output>
           <p class="formula" id="sh-preview"></p>
-          <button type="button" class="link clear" id="sh-clear">Borrar</button>
+          <button type="button" class="link clear" id="sh-clear" data-i18n="clear">Clear</button>
         </div>
         <div class="chips" id="sh-chips"></div>
-        <button class="btn btn-earn" id="sh-create" type="button" disabled>Crear código</button>
+        <button class="btn btn-earn" id="sh-create" type="button" disabled>Create code</button>
       </section>
       <section class="pane" id="sh-code" hidden>
         <div class="qr" id="sh-qr"></div>
         <p class="code" id="sh-codetext"></p>
         <p class="row-s center" id="sh-status"></p>
-        <button class="link" id="sh-cancel" type="button">Cancelar y recuperar mi tiempo</button>
+        <button class="link" id="sh-cancel" type="button" data-i18n="share.cancel">Cancel and get my time back</button>
       </section>
       <form class="pane" id="sh-recv" hidden>
         <button class="btn btn-earn" id="sh-scan" type="button" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg>Escanear QR
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg><span data-i18n="scanQr">Scan QR</span>
         </button>
-        <p class="row-s center or" id="sh-or" hidden>o escribe el código</p>
-        <input class="field code-input" id="sh-input" maxlength="7" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-label="Código de tiempo">
-        <button class="btn btn-spend" id="sh-recv-btn" type="submit">Recibir tiempo</button>
+        <p class="row-s center or" id="sh-or" hidden data-i18n="orType">or type the code</p>
+        <input class="field code-input" id="sh-input" maxlength="7" placeholder="CODE" data-i18n-ph="ph.code" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go" aria-label="Time code" data-i18n-aria="a.code">
+        <button class="btn btn-spend" id="sh-recv-btn" type="submit" data-i18n="receiveTime">Receive time</button>
       </form>
     </div>
   </dialog>
@@ -176,13 +176,13 @@
   <dialog class="sheet" id="sheet-scan" aria-labelledby="sc-title">
     <div class="sheet-body">
       <div class="grip"></div>
-      <h2 class="sheet-title" id="sc-title">Escanear QR</h2>
+      <h2 class="sheet-title" id="sc-title">Scan QR</h2>
       <div class="viewfinder">
         <video id="scan-video" playsinline muted autoplay></video>
         <span class="aim" aria-hidden="true"></span>
       </div>
-      <p class="row-s center" id="scan-msg" role="status">Apunta al QR de quien te regala tiempo.</p>
-      <button class="btn btn-spend" id="scan-cancel" type="button">Cancelar</button>
+      <p class="row-s center" id="scan-msg" role="status"></p>
+      <button class="btn btn-spend" id="scan-cancel" type="button" data-i18n="cancel">Cancel</button>
     </div>
   </dialog>
 
@@ -190,15 +190,15 @@
   <dialog class="sheet" id="sheet-history" aria-labelledby="h-title">
     <div class="sheet-body">
       <div class="grip"></div>
-      <h2 class="sheet-title" id="h-title">Esta vida</h2>
+      <h2 class="sheet-title" id="h-title">This life</h2>
       <div class="stats">
-        <div class="stat"><span class="stat-k">Ganado</span><span class="stat-v up" id="st-earned">0m</span></div>
-        <div class="stat"><span class="stat-k">Gastado</span><span class="stat-v down" id="st-spent">0m</span></div>
-        <div class="stat"><span class="stat-k">Vivido</span><span class="stat-v" id="st-lived">0m</span></div>
+        <div class="stat"><span class="stat-k" data-i18n="h.earned">Earned</span><span class="stat-v up" id="st-earned">0m</span></div>
+        <div class="stat"><span class="stat-k" data-i18n="h.spent">Spent</span><span class="stat-v down" id="st-spent">0m</span></div>
+        <div class="stat"><span class="stat-k" data-i18n="h.lived">Lived</span><span class="stat-v" id="st-lived">0m</span></div>
       </div>
       <p class="note-line" id="st-record" hidden></p>
       <ol class="ledger" id="ledger"></ol>
-      <p class="empty" id="ledger-empty">Aún no hay movimientos. Tu tiempo ya está corriendo.</p>
+      <p class="empty" id="ledger-empty" data-i18n="h.empty">No activity yet. Your time is already running.</p>
     </div>
   </dialog>
 
@@ -206,55 +206,62 @@
   <dialog class="sheet" id="sheet-settings" aria-labelledby="s-title">
     <div class="sheet-body">
       <div class="grip"></div>
-      <h2 class="sheet-title" id="s-title">Ajustes</h2>
+      <h2 class="sheet-title" id="s-title" data-i18n="settings">Settings</h2>
       <div class="rows">
+        <div class="row lang-row">
+          <div><p class="row-t" data-i18n="language">Language</p></div>
+          <div class="seg" id="lang-seg" role="radiogroup" aria-label="App language" data-i18n-aria="a.language">
+            <button type="button" role="radio" data-lang="en" lang="en">English</button>
+            <button type="button" role="radio" data-lang="es" lang="es">Español</button>
+          </div>
+        </div>
         <div class="row">
-          <div><p class="row-t">Tu tasa de cambio</p><p class="row-s" id="rate-text"></p></div>
+          <div><p class="row-t" data-i18n="rateTitle">Your exchange rate</p><p class="row-s" id="rate-text"></p></div>
         </div>
         <div class="row needs-session">
-          <div><p class="row-t">Alertas</p><p class="row-s" id="push-status"></p></div>
-          <button class="pill" id="btn-push" type="button">Activar</button>
+          <div><p class="row-t" data-i18n="alerts">Alerts</p><p class="row-s" id="push-status"></p></div>
+          <button class="pill" id="btn-push" type="button">Turn on</button>
         </div>
         <div class="row remind-row needs-session">
-          <div><p class="row-t">Recordarme contar mi día</p><p class="row-s" id="remind-status"></p></div>
-          <div class="seg seg-4" id="remind-seg" role="radiogroup" aria-label="Cada cuánto recordarte contar tu día">
-            <button type="button" role="radio" data-every="0">No</button>
+          <div><p class="row-t" data-i18n="remindTitle">Remind me to log my day</p><p class="row-s" id="remind-status"></p></div>
+          <div class="seg seg-4" id="remind-seg" role="radiogroup" aria-label="How often to remind you to log your day" data-i18n-aria="a.remind">
+            <button type="button" role="radio" data-every="0" data-i18n="remindNo">Off</button>
             <button type="button" role="radio" data-every="21600">6 h</button>
             <button type="button" role="radio" data-every="43200">12 h</button>
             <button type="button" role="radio" data-every="86400">24 h</button>
           </div>
         </div>
         <div class="row" id="row-install" hidden>
-          <div><p class="row-t">Instalar</p><p class="row-s" id="install-hint"></p></div>
-          <button class="pill" id="btn-install" type="button">Instalar</button>
+          <div><p class="row-t" data-i18n="install">Install</p><p class="row-s" id="install-hint"></p></div>
+          <button class="pill" id="btn-install" type="button" data-i18n="install">Install</button>
         </div>
         <form class="row name-row needs-session" id="name-form">
           <div class="grow">
-            <p class="row-t">Tu nombre</p>
-            <input class="field" id="name-input" maxlength="32" placeholder="Nombre o apodo" autocomplete="nickname" enterkeyhint="done" aria-label="Tu nombre o apodo, máximo 32 caracteres">
+            <p class="row-t" data-i18n="yourName">Your name</p>
+            <input class="field" id="name-input" maxlength="32" placeholder="Name or nickname" data-i18n-ph="ph.nick" autocomplete="nickname" enterkeyhint="done" aria-label="Your name or nickname, up to 32 characters" data-i18n-aria="a.name">
             <p class="row-s counter" id="name-count"></p>
           </div>
-          <button class="pill" type="submit">Guardar</button>
+          <button class="pill" type="submit" data-i18n="save">Save</button>
         </form>
         <div class="row needs-session">
-          <div><p class="row-t">Tu llave</p><p class="row-s">Es tu identificador: abre este reloj en otro dispositivo. No la compartas.</p><p class="key" id="key-text"></p></div>
-          <button class="pill" id="btn-show-key" type="button">Ver</button>
+          <div><p class="row-t" data-i18n="yourKey">Your key</p><p class="row-s" data-i18n="key.sub">It's your ID: it opens this clock on another device. Don't share it.</p><p class="key" id="key-text"></p></div>
+          <button class="pill" id="btn-show-key" type="button" data-i18n="view">View</button>
         </div>
         <div class="row needs-session">
-          <div><p class="row-t">Cambiar tu llave</p><p class="row-s">Si alguien más la vio. Tu reloj queda igual; la llave vieja deja de servir en todos lados.</p></div>
-          <button class="pill" id="btn-rotate" type="button">Cambiar</button>
+          <div><p class="row-t" data-i18n="rotate.row">Change your key</p><p class="row-s" data-i18n="rotate.sub">If someone else saw it. Your clock stays the same; the old key stops working everywhere.</p></div>
+          <button class="pill" id="btn-rotate" type="button" data-i18n="change">Change</button>
         </div>
         <form class="row link-row" id="link-form">
-          <input class="field" id="link-input" placeholder="Pegar una llave" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Pegar una llave">
-          <button class="pill icon-pill" id="btn-scan-key" type="button" aria-label="Escanear el QR de una llave" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg></button>
-          <button class="pill" type="submit">Usar</button>
+          <input class="field" id="link-input" placeholder="Paste a key" data-i18n-ph="ph.pasteKey" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" aria-label="Paste a key" data-i18n-aria="ph.pasteKey">
+          <button class="pill icon-pill" id="btn-scan-key" type="button" aria-label="Scan a key's QR" data-i18n-aria="a.scanKey" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg></button>
+          <button class="pill" type="submit" data-i18n="use">Use</button>
         </form>
         <div class="row needs-session">
-          <div><p class="row-t">Empezar de nuevo</p><p class="row-s">Pierdes esta vida y renaces desde cero.</p></div>
-          <button class="pill pill-danger" id="btn-reset" type="button">Reiniciar</button>
+          <div><p class="row-t" data-i18n="reset.row">Start over</p><p class="row-s" data-i18n="reset.sub">You lose this life and are reborn from zero.</p></div>
+          <button class="pill pill-danger" id="btn-reset" type="button" data-i18n="restart">Restart</button>
         </div>
       </div>
-      <p class="row-s privacy">Privacidad: para detectar cuentas repetidas guardamos un identificador anónimo de este teléfono y una huella cifrada de tu red. Nunca guardamos tu IP.</p>
+      <p class="row-s privacy" data-i18n="privacy">Privacy: to detect duplicate accounts we keep an anonymous ID of this phone and an encrypted fingerprint of your network. We never store your IP.</p>
       <p class="foot" id="foot"></p>
     </div>
   </dialog>
@@ -263,16 +270,16 @@
   <dialog class="sheet" id="sheet-key" aria-labelledby="k-title">
     <div class="sheet-body">
       <div class="grip"></div>
-      <h2 class="sheet-title" id="k-title">Esta es tu llave</h2>
-      <p class="cf-text">Es tu <b>identificador</b> en Tiempo: con ella abres tu reloj en otro celular o lo recuperas si borras la app. No hay contraseña, así que <b>si la pierdes, pierdes tu reloj</b>. No se la muestres a nadie.</p>
+      <h2 class="sheet-title" id="k-title">This is your key</h2>
+      <p class="cf-text" data-i18n-html="key.text">It's your <b>ID</b> in Tiempo: with it you open your clock on another phone or recover it if you delete the app. There's no password, so <b>if you lose it, you lose your clock</b>. Don't show it to anyone.</p>
       <p class="key-box" id="key-full"></p>
       <div class="key-qr" id="key-qr" hidden>
         <div class="qr" id="key-qr-img"></div>
-        <p class="row-s center">En tu otro celular, abre Tiempo → Ajustes → <b>escanear llave</b> (junto a «Pegar una llave»). Muéstralo solo en tus dispositivos.</p>
+        <p class="row-s center" data-i18n-html="key.qrText">On your other phone, open Tiempo → Settings → <b>scan key</b> (next to “Paste a key”). Show it only on your own devices.</p>
       </div>
-      <button class="btn btn-spend" id="k-qr" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg>Mostrar QR</button>
-      <button class="btn btn-spend" id="k-copy" type="button">Copiar llave</button>
-      <button class="btn btn-earn" id="k-done" type="button">Ya la guardé</button>
+      <button class="btn btn-spend" id="k-qr" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg><span data-i18n="showQr">Show QR</span></button>
+      <button class="btn btn-spend" id="k-copy" type="button">Copy key</button>
+      <button class="btn btn-earn" id="k-done" type="button">I've saved it</button>
     </div>
   </dialog>
 
@@ -283,8 +290,8 @@
       <h2 class="sheet-title" id="cf-title"></h2>
       <p class="cf-text" id="cf-text"></p>
       <div class="pair">
-        <button class="btn btn-spend" id="cf-no" type="button">Cancelar</button>
-        <button class="btn btn-danger" id="cf-yes" type="button">Sí</button>
+        <button class="btn btn-spend" id="cf-no" type="button" data-i18n="cancel">Cancel</button>
+        <button class="btn btn-danger" id="cf-yes" type="button">Yes</button>
       </div>
     </div>
   </dialog>

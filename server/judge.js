@@ -42,7 +42,14 @@ Reglas:
 7. Negociación: la persona puede replicar hasta ${MAX_REPLIES} veces. Cambia tu decisión solo ante argumentos concretos o pruebas nuevas, nunca por insistencia, halagos o drama. Si cambias de opinión, dilo.
 8. No digas cuánto tiempo de vida vale cada cosa: eso lo calcula la app.
 
-Estilo de "message": español latino, tuteando, máximo 3 frases, con personalidad (sobrio, justo, humor seco). Cada "reason": una frase corta. Cada "activity": 2 a 5 palabras.`;
+Estilo de "message": máximo 3 frases, con personalidad (sobrio, justo, humor seco). Cada "reason": una frase corta. Cada "activity": 2 a 5 palabras.`;
+
+// Idioma de la respuesta: el de la app de la persona (por defecto inglés). Las reglas no cambian.
+const LANGUAGE = {
+  es: 'Idioma: escribe "message", cada "reason" y cada "activity" en español latino, tuteando.',
+  en: 'Idioma: escribe "message", cada "reason" y cada "activity" en inglés (English), en tono cercano. La persona usa la app en inglés; los montos de dinero siguen siendo pesos colombianos.',
+};
+export const systemFor = (lang) => `${SYSTEM}\n\n${LANGUAGE[lang] || LANGUAGE.en}`;
 
 const dateFmt = new Intl.DateTimeFormat('es-CO', { dateStyle: 'full', timeZone: 'America/Bogota' });
 
@@ -88,28 +95,28 @@ export function createJudge({ apiKey = process.env.ANTHROPIC_API_KEY, model = pr
   const client = apiKey ? new Anthropic({ apiKey }) : null;
 
   async function evaluate(input) {
-    if (!client) throw new AppError(503, 'judge_off', 'El Guardián no está configurado: falta ANTHROPIC_API_KEY.');
+    if (!client) throw new AppError(503, 'judge_off', 'El Guardián no está configurado: falta ANTHROPIC_API_KEY.', 'The Guardian is not configured: ANTHROPIC_API_KEY is missing.');
     let response;
     try {
       response = await client.messages.parse({
         model,
         max_tokens: 4000,
-        system: SYSTEM,
+        system: systemFor(input.lang),
         output_config: { effort: 'medium', format: zodOutputFormat(Verdict) },
         messages: [{ role: 'user', content: buildContent(input) }],
       });
     } catch (err) {
-      if (err instanceof Anthropic.AuthenticationError) throw new AppError(503, 'judge_auth', 'La llave de la IA no es válida.');
-      if (err instanceof Anthropic.RateLimitError) throw new AppError(429, 'judge_rate', 'El Guardián está ocupado. Intenta en un momento.');
+      if (err instanceof Anthropic.AuthenticationError) throw new AppError(503, 'judge_auth', 'La llave de la IA no es válida.', 'The AI key is not valid.');
+      if (err instanceof Anthropic.RateLimitError) throw new AppError(429, 'judge_rate', 'El Guardián está ocupado. Intenta en un momento.', 'The Guardian is busy. Try again in a moment.');
       if (err instanceof Anthropic.BadRequestError) {
         log.warn('juez 400:', err.message);
-        throw new AppError(400, 'judge_input', 'El Guardián no pudo leer eso. Revisa las fotos e intenta de nuevo.');
+        throw new AppError(400, 'judge_input', 'El Guardián no pudo leer eso. Revisa las fotos e intenta de nuevo.', "The Guardian couldn't read that. Check the photos and try again.");
       }
       log.warn('juez:', err.status ?? '', err.message);
-      throw new AppError(502, 'judge', 'El Guardián no respondió. Intenta de nuevo.');
+      throw new AppError(502, 'judge', 'El Guardián no respondió. Intenta de nuevo.', "The Guardian didn't respond. Try again.");
     }
-    if (response.stop_reason === 'refusal') throw new AppError(422, 'refusal', 'El Guardián no puede evaluar ese contenido.');
-    if (!response.parsed_output) throw new AppError(502, 'judge', 'El Guardián se enredó. Intenta de nuevo.');
+    if (response.stop_reason === 'refusal') throw new AppError(422, 'refusal', 'El Guardián no puede evaluar ese contenido.', "The Guardian can't evaluate that content.");
+    if (!response.parsed_output) throw new AppError(502, 'judge', 'El Guardián se enredó. Intenta de nuevo.', 'The Guardian got confused. Try again.');
     return response.parsed_output;
   }
 

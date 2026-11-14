@@ -26,6 +26,7 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
 - **Tu llave en QR**: Ajustes → Tu llave → Mostrar QR; en el otro dispositivo, Ajustes → escanear llave. Y si alguien la vio, **Cambiar tu llave** da una nueva para el mismo reloj.
 - **Recordatorio de "Mi día"** (cada 6 h, 12 h —por defecto— o 24 h, o apagado): si en ese lapso no le cuentas nada al Guardián, te lo recuerda. Nunca de 22:00 a 8:00 en la hora de tu teléfono; al tocarlo se abre "Mi día".
 - **Sin contraseñas**: al empezar eliges un nombre o apodo (opcional) y la app te muestra tu *llave*, tu identificador. Con ella abres el mismo reloj en otro dispositivo (Ajustes → Tu llave).
+- **Inglés y español**: la app arranca en inglés y se cambia en Ajustes → Language. El Guardián, los errores y las alertas push hablan el idioma de la app.
 - PWA instalable; sin conexión muestra el último estado.
 - **Panel `/admin`** (con `ADMIN_TOKEN`): cuentas repetidas por teléfono o por red, reinicios voluntarios y muertes por reloj. Cada teléfono tiene un identificador anónimo aleatorio y de la red solo se guarda una huella cifrada con un secreto del servidor: **la IP nunca se guarda**.
 - **Las actualizaciones no tocan los relojes**: datos en el volumen, migraciones que solo agregan, copia de seguridad automática antes de migrar, y la app nunca borra una llave por su cuenta.
@@ -36,8 +37,8 @@ Un solo servicio: Node 24 sin framework, SQLite integrado (`node:sqlite`) con mi
 
 ```
 server/   index.js (HTTP + API) · store.js (SQLite) · judge.js (Guardián IA) · push.js · static.js
-public/   index.html · app.js · clock.js · economy.js · styles.css · sw.js · vendor/ · fonts/
-test/     store.test.js
+public/   index.html · app.js · i18n.js (textos en/es) · clock.js · economy.js · styles.css · sw.js · vendor/ · fonts/
+test/     store.test.js · i18n.test.js · scan.test.js
 ```
 
 ## Local
@@ -71,7 +72,7 @@ No actives *Serverless / App Sleeping*: el servidor tiene que estar despierto pa
 
 ## API
 
-Todas las rutas usan `Authorization: Bearer <llave>`, salvo las marcadas.
+Todas las rutas usan `Authorization: Bearer <llave>`, salvo las marcadas. La app manda además `X-Lang: en|es`: los mensajes de error salen en ese idioma (sin el encabezado, en español) y queda guardado para las alertas push y el Guardián.
 
 | Método | Ruta | |
 |---|---|---|

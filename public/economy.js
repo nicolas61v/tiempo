@@ -16,20 +16,30 @@ export const HOUR = 3_600;
  *         'photo' → solo por "Mi día": el Guardián exige foto
  *         'judge' → solo por "Mi día": el Guardián decide, foto opcional
  * system: movimientos internos (transferencias), no se eligen a mano
+ * label/hint: en español; en: { label, hint } en inglés (ver catText)
  */
 export const CATEGORIES = {
   // ── Ganar ──
-  ingreso: { dir: 1, unit: 'money', rate: 1, proof: 'none', label: 'Dinero', hint: 'Lo que te entra limpio: ventas, sueldo, freelance.' },
-  inversion: { dir: 1, unit: 'money', rate: 0.5, proof: 'none', label: 'Inversión en ti', hint: 'Plata que pones en crecer: cursos, libros, herramientas.' },
-  aprendizaje: { dir: 1, unit: 'hours', rate: 2, cap: 8, proof: 'photo', label: 'Aprendizaje', hint: 'Estudiar o practicar algo que te hace más capaz.' },
-  salud: { dir: 1, unit: 'hours', rate: 3, cap: 2, proof: 'photo', label: 'Salud', hint: 'Ejercicio y deporte.' },
-  proyecto: { dir: 1, unit: 'hours', rate: 1, cap: 10, proof: 'judge', label: 'Proyecto', hint: 'Trabajo enfocado en lo tuyo que todavía no paga.' },
+  ingreso: { dir: 1, unit: 'money', rate: 1, proof: 'none', label: 'Dinero', hint: 'Lo que te entra limpio: ventas, sueldo, freelance.',
+    en: { label: 'Money', hint: 'What comes in clean: sales, salary, freelance.' } },
+  inversion: { dir: 1, unit: 'money', rate: 0.5, proof: 'none', label: 'Inversión en ti', hint: 'Plata que pones en crecer: cursos, libros, herramientas.',
+    en: { label: 'Investing in you', hint: 'Money you put into growing: courses, books, tools.' } },
+  aprendizaje: { dir: 1, unit: 'hours', rate: 2, cap: 8, proof: 'photo', label: 'Aprendizaje', hint: 'Estudiar o practicar algo que te hace más capaz.',
+    en: { label: 'Learning', hint: 'Studying or practicing something that makes you more capable.' } },
+  salud: { dir: 1, unit: 'hours', rate: 3, cap: 2, proof: 'photo', label: 'Salud', hint: 'Ejercicio y deporte.',
+    en: { label: 'Health', hint: 'Exercise and sports.' } },
+  proyecto: { dir: 1, unit: 'hours', rate: 1, cap: 10, proof: 'judge', label: 'Proyecto', hint: 'Trabajo enfocado en lo tuyo que todavía no paga.',
+    en: { label: 'Project', hint: "Focused work on your own thing that doesn't pay yet." } },
   // ── Gastar ──
-  consumo: { dir: -1, unit: 'money', rate: 1, proof: 'none', label: 'Gasto', hint: 'Lo que no necesitabas: antojos, compras por impulso.' },
+  consumo: { dir: -1, unit: 'money', rate: 1, proof: 'none', label: 'Gasto', hint: 'Lo que no necesitabas: antojos, compras por impulso.',
+    en: { label: 'Spending', hint: "What you didn't need: cravings, impulse buys." } },
   // ── Transferencias ──
-  envio: { dir: -1, unit: 'seconds', rate: 1, system: true, label: 'Tiempo enviado' },
-  recibo: { dir: 1, unit: 'seconds', rate: 1, system: true, label: 'Tiempo recibido' },
+  envio: { dir: -1, unit: 'seconds', rate: 1, system: true, label: 'Tiempo enviado', en: { label: 'Time sent' } },
+  recibo: { dir: 1, unit: 'seconds', rate: 1, system: true, label: 'Tiempo recibido', en: { label: 'Time received' } },
 };
+
+/** Nombre y pista de una categoría en el idioma pedido ('es' o 'en'). */
+export const catText = (c, lang) => ({ label: c.label, hint: c.hint, ...(lang === 'en' ? c.en : null) });
 
 export const dayValue = (minWageMonthly) => minWageMonthly / 30;
 
