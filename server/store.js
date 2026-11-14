@@ -19,8 +19,8 @@ const NOTE_MAX = 80;
 const UNDO_WINDOW = 5 * 60_000;
 const CAP_WINDOW = 86_400_000;
 const MAX_SUBS = 10;
-// Mi día
-const DAYS_PER_24H = 5;
+// Mi día: charlas con el Guardián por fecha del calendario (se renuevan a medianoche en la hora de la persona)
+export const DAYS_PER_DAY = 7;
 const DAY_TEXT_MAX = 2000;
 const PHOTOS_PER_MSG = 4;
 const PHOTOS_PER_DAY = 6;
@@ -65,6 +65,27 @@ export function localHour(t, tz) {
   let f = hourFormats.get(zone);
   if (!f) hourFormats.set(zone, (f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: 'numeric', hourCycle: 'h23' })));
   return Number(f.format(t)) % 24;
+}
+
+const dateFormats = new Map();
+/** Instante (ms) en que empezó la fecha de hoy (00:00) en la zona de la persona, con cambio de hora incluido. */
+export function startOfLocalDay(t, tz) {
+  const zone = tz || DEFAULT_TZ;
+  let f = dateFormats.get(zone);
+  if (!f) {
+    const opts = { timeZone: zone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23' };
+    dateFormats.set(zone, (f = new Intl.DateTimeFormat('en-US', opts)));
+  }
+  const parts = (x) => Object.fromEntries(f.formatToParts(x).map((p) => [p.type, Number(p.value)]));
+  // Desfase de la zona en el instante x: su hora de reloj leída como si fuera UTC, menos x.
+  const offsetAt = (x) => {
+    const p = parts(x);
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second) - (x - (x % 1000));
+  };
+  const p = parts(t);
+  const midnight = Date.UTC(p.year, p.month - 1, p.day);
+  // Segunda pasada: si hoy cambió la hora, vale el desfase que había a la medianoche, no el de ahora.
+  return midnight - offsetAt(midnight - offsetAt(t));
 }
 
 const newToken = () => 'tk_' + randomBytes(18).toString('base64url');
@@ -305,7 +326,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     daySave: st('UPDATE days SET turns = ?, images = ?, verdict = ?, rounds = ? WHERE id = ?'),
     dayClose: st('UPDATE days SET status = ?, images = NULL WHERE id = ?'),
     dayDelete: st('DELETE FROM days WHERE id = ?'),
-    daysSince: st('SELECT COUNT(*) AS n FROM days WHERE user_id = ? AND created_at > ?'),
+    daysSince: st('SELECT COUNT(*) AS n FROM days WHERE user_id = ? AND created_at >= ?'),
     dayPurge: st(`UPDATE days SET status = 'descartado', images = NULL WHERE status = 'abierto' AND created_at < ?`),
     hashUsed: st('SELECT 1 AS used FROM proof_hashes WHERE hash = ?'),
     hashAdd: st('INSERT OR IGNORE INTO proof_hashes (hash, user_id, used_at) VALUES (?, ?, ?)'),
@@ -384,12 +405,25 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     return u;
   }
 
+  /** Charlas con el Guardián: cuántas usó hoy (fecha en su zona) y cuándo se renuevan. */
+  function dayQuota(u, t) {
+    const from = startOfLocalDay(t, u.tz);
+    const used = q.daysSince.get(u.id, from).n;
+    // Un día dura entre 23 y 25 h: 30 h después de esta medianoche siempre es mañana.
+    return { used, left: Math.max(0, DAYS_PER_DAY - used), resetAt: startOfLocalDay(from + 30 * 3_600_000, u.tz) };
+  }
+
   function snapshot(u) {
     const totals = q.totals.get(u.id, u.life_no);
+    const t = now();
+    const quota = dayQuota(u, t);
     return {
-      now: now(),
+      now: t,
       nickname: u.nickname,
       remindEvery: u.remind_every,
+      daysPerDay: DAYS_PER_DAY,
+      daysLeft: quota.left,
+      daysResetAt: quota.resetAt,
       lifeNo: u.life_no,
       bornAt: u.born_at,
       expiresAt: u.expires_at,
@@ -602,12 +636,15 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
     /* ───────── Mi día ───────── */
 
-    openDay(id, { text, images } = {}) {
-      const u = must(id);
+    openDay(id, { text, images, tz } = {}) {
+      let u = must(id);
       const t = now();
       if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó');
-      if (q.daysSince.get(id, t - CAP_WINDOW).n >= DAYS_PER_24H) {
-        throw new AppError(429, 'days', `Ya le contaste ${DAYS_PER_24H} veces al Guardián hoy. Vuelve mañana.`);
+      // "Hoy" es la fecha del teléfono: la zona llega con cada charla (si viajó, se actualiza).
+      tz = cleanTz(tz);
+      if (tz && tz !== u.tz) q.setTz.run(tz, id), (u = must(id));
+      if (dayQuota(u, t).left <= 0) {
+        throw new AppError(429, 'days', `Ya usaste tus ${DAYS_PER_DAY} charlas de hoy con el Guardián. Se renuevan a medianoche.`);
       }
       text = typeof text === 'string' ? text.trim().slice(0, DAY_TEXT_MAX) : '';
       if (!text) throw new AppError(400, 'text', 'Cuéntale al Guardián qué hiciste');

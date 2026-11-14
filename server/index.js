@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
-import { openStore, AppError } from './store.js';
+import { openStore, AppError, DAYS_PER_DAY } from './store.js';
 import { createPush } from './push.js';
 import { createJudge } from './judge.js';
 import { loadStatic, serveStatic } from './static.js';
@@ -36,6 +36,7 @@ setInterval(() => {
 const site = loadStatic(path.join(config.root, 'public'), {
   __INITIAL__: String(config.initialSeconds),
   __MIN_WAGE__: String(config.minWage),
+  __DAYS_PER_DAY__: String(DAYS_PER_DAY),
 });
 
 const SECURITY = {
@@ -123,7 +124,7 @@ async function runJudge(id, dayId) {
     store.rollbackDay(dayId);
     throw err;
   }
-  return { day: store.publicDay(id, dayId) };
+  return { day: store.publicDay(id, dayId), state: store.state(id) }; // el estado trae las charlas que le quedan hoy
 }
 
 function requireJudge() {

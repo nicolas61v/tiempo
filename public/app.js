@@ -9,6 +9,7 @@ const STORE_KEY = 'tiempo.v1';
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content;
 const INITIAL = Number(meta('initial-seconds')) || WEEK;
 const MIN_WAGE = Number(meta('min-wage')) || 1_750_905;
+const DAYS_PER_DAY = Number(meta('days-per-day')) || 7; // charlas con el Guardián por fecha
 const DAY_VALUE = dayValue(MIN_WAGE);
 const VERSION = meta('app-version') || 'dev';
 const STATUS = { ok: 'Tiempo restante', low: 'Último día', critical: 'Última hora', dead: 'Tiempo agotado' };
@@ -632,8 +633,22 @@ function renderThumbs() {
   );
 }
 
+/** Charlas con el Guardián que quedan hoy. Si pasó la medianoche desde la última foto del servidor, ya se renovaron. */
+function dayQuota() {
+  const per = S?.daysPerDay || DAYS_PER_DAY;
+  const known = Number.isInteger(S?.daysLeft) && !(S.daysResetAt && now() >= S.daysResetAt);
+  return { per, left: known ? S.daysLeft : per };
+}
+
+function quotaText({ per, left }) {
+  if (left <= 0) return `Ya usaste tus ${per} charlas de hoy. Se renuevan a medianoche.`;
+  if (left >= per) return `Tienes ${per} charlas por día con el Guardián. Se renuevan a medianoche.`;
+  return `Hoy te ${left === 1 ? 'queda 1 charla' : `quedan ${left} charlas`} de ${per}. Se renuevan a medianoche.`;
+}
+
 function renderDay() {
   const turns = day?.turns || [];
+  const quota = dayQuota();
   const lastJudge = turns.findLastIndex((t) => t.role === 'judge');
   const nodes = turns.map((t, i) => (t.role === 'user' ? userBubble(t.text, t.photos) : judgeBubble(t, i === lastJudge)));
   if (dayBusy) {
@@ -649,8 +664,8 @@ function renderDay() {
     ? 'Replica: explica mejor o sube una prueba…'
     : 'Hoy fui al gym una hora, estudié inglés 2 h y vendí 3 kits por 90 mil…';
   $('#d-send').textContent = day ? 'Replicar' : 'Enviar al Guardián';
-  $('#d-send').disabled = dayBusy;
-  $('#d-left').textContent = day ? (left === 1 ? 'Te queda 1 réplica.' : `Te quedan ${left} réplicas.`) : '';
+  $('#d-send').disabled = dayBusy || (!day && quota.left <= 0);
+  $('#d-left').textContent = day ? (left === 1 ? 'Te queda 1 réplica.' : `Te quedan ${left} réplicas.`) : quotaText(quota);
   renderThumbs();
 
   $('#d-actions').hidden = !hasVerdict || dayBusy;
@@ -891,10 +906,11 @@ async function sendDay(e) {
   try {
     const r = day
       ? await api('POST', `/api/day/${day.id}/reply`, { text, images })
-      : await api('POST', '/api/day', { text, images });
+      : await api('POST', '/api/day', { text, images, tz: userTz() });
     day = r.day;
     saved.day = day;
-    persist();
+    if (r.state) apply(r.state);
+    else persist();
     $('#d-text').value = '';
     dayPhotos.forEach((p) => URL.revokeObjectURL(p.url));
     dayPhotos = [];
@@ -902,6 +918,7 @@ async function sendDay(e) {
     if (saved.voice) speakVerdict(day.turns.at(-1));
   } catch (err) {
     if (err.status === 404 || err.code === 'closed') closeDay();
+    if (err.code === 'days' && S) S = { ...S, daysLeft: 0, daysResetAt: null }; // el servidor manda: hoy ya no quedan
     toast(err.message);
   } finally {
     dayBusy = false;

@@ -17,7 +17,8 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
 - **Ya hecho**:
   - Reloj (años · meses · semanas · días · horas · min · seg) que se ajusta a cualquier ancho de pantalla.
   - **Mi día**: le cuentas al Guardián (Claude Haiku 5.5, `server/judge.js`; el dueño lo eligió así) qué
-    hiciste, con fotos como prueba, y él decide qué suma. Máximo 5 al día.
+    hiciste, con fotos como prueba, y él decide qué suma. 7 charlas por fecha (se renuevan a medianoche en la
+    hora del teléfono; `DAYS_PER_DAY` en `store.js`).
   - **Dinero**: ingresos e inversión suman; gastos restan (en tu palabra).
   - **Transferir**: código de 6 letras + QR; escáner de QR dentro de la app (`public/scan.js`: lector
     nativo en Android, jsQR en iPhone). El historial dice "De Nico" / "Para Pipe".
@@ -100,7 +101,7 @@ parseWebhook(req, rawBody) → { type: 'paid' | 'refunded', userId, product, ref
 - **a. Revivir** (pago único, ~US$1): con el reloj en cero (fase `dead`), en vez de "Renacer" desde cero
   revive conservando su número de vida, récord e historial. ¿Con cuánto tiempo? Propuesta: 1 día (lo decide
   el dueño).
-- **b. Plus** (suscripción, ~US$3/mes): "Mi día" sin el límite de 5 (`DAYS_PER_24H` en `store.js`),
+- **b. Plus** (suscripción, ~US$3/mes): "Mi día" sin el límite de 7 charlas (`DAYS_PER_DAY` en `store.js`),
   Guardián con Sonnet en vez de Haiku (`JUDGE_MODEL`/`judge.js`), estadísticas de vidas, temas de color,
   exportar el historial.
 - **c. Regalar tiempo comprado** (paquetes de 1 día o 1 semana) usando el flujo de transferencias
@@ -137,7 +138,7 @@ parseWebhook(req, rawBody) → { type: 'paid' | 'refunded', userId, product, ref
 
 - Poner un **tope de gasto** en la consola de Anthropic (cada "Mi día" llama al modelo).
 - Configurar `ADMIN_TOKEN` en Railway y revisar `/admin` (cuentas repetidas por teléfono o red).
-- Límites actuales: 20 relojes nuevos por hora por red, 5 "Mi día" por persona al día y 240 peticiones
+- Límites actuales: 20 relojes nuevos por hora por red, 7 charlas de "Mi día" por persona y fecha y 240 peticiones
   por minuto. Si hay abuso, considerar un captcha invisible (p. ej. Turnstile), ajustando la CSP.
 - Gancho: *"si no haces nada con tu vida, tu reloj llega a cero"*.
 

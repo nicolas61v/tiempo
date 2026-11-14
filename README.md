@@ -20,7 +20,7 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
 ## Cómo funciona
 
 - **El servidor guarda una fecha**: cuándo se agota tu tiempo. El teléfono hace la cuenta regresiva.
-- **Mi día**: escribes lo que hiciste y subes fotos. El Guardián (Claude Haiku 5.5) devuelve un veredicto por actividad. Puedes **replicar 2 veces**; luego aceptas. La IA solo clasifica: el tiempo lo calcula la fórmula en el servidor. Las fotos se borran al cerrar el día; se guarda solo su huella, para que una misma foto no sirva dos veces.
+- **Mi día**: escribes lo que hiciste y subes fotos. El Guardián (Claude Haiku 5.5) devuelve un veredicto por actividad. Tienes **7 charlas por día** (por fecha en la hora del teléfono: se renuevan a medianoche) y en cada una puedes **replicar 2 veces**; luego aceptas. La IA solo clasifica: el tiempo lo calcula la fórmula en el servidor. Las fotos se borran al cerrar el día; se guarda solo su huella, para que una misma foto no sirva dos veces.
 - **Transferir**: creas un código de 6 letras + QR por X tiempo. El tiempo sale de tu reloj al instante; quien lo escanea desde la app (Transferir → Recibir → Escanear QR) o escribe el código lo recibe. Si nadie lo reclama en 10 minutos, vuelve solo.
 - **Alertas push** a 24 h, 1 h, 10 min y al llegar a cero, aunque la app esté cerrada.
 - **Tu llave en QR**: Ajustes → Tu llave → Mostrar QR; en el otro dispositivo, Ajustes → escanear llave. Y si alguien la vio, **Cambiar tu llave** da una nueva para el mismo reloj.

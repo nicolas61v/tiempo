@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { openStore, alertBand, MIGRATIONS } from '../server/store.js';
+import { openStore, alertBand, startOfLocalDay, MIGRATIONS } from '../server/store.js';
 import { buildContent } from '../server/judge.js';
 import { lifeSeconds } from '../public/economy.js';
 import { split } from '../public/clock.js';
@@ -160,6 +160,40 @@ test('mi día: una foto solo sirve de prueba una vez', () => {
   const b = store.openDay(id, { text: 'gym otra vez', images: [PHOTO] }).id;
   assert.equal(store.judgeInput(id, b).images[0].reused, true);
   assert.throws(() => store.openDay(id, { text: 'x', images: [{ media_type: 'text/html', data: 'A'.repeat(200) }] }), { code: 'images' });
+});
+
+test('mi día: 7 charlas por fecha del calendario, se renuevan a medianoche (no 24 h después)', () => {
+  const { store, id, advance } = setup(); // 07:00 en Bogotá
+  assert.equal(store.state(id).daysPerDay, 7);
+  assert.equal(store.state(id).daysLeft, 7);
+  assert.equal(store.state(id).daysResetAt, Date.UTC(2026, 10, 13, 5)); // medianoche de Bogotá en UTC
+  for (let i = 0; i < 7; i++) store.openDay(id, { text: `charla ${i + 1}` });
+  assert.equal(store.state(id).daysLeft, 0);
+  assert.throws(() => store.openDay(id, { text: 'la octava' }), { code: 'days', message: /7 charlas/ });
+  advance(16 * HOUR + 59 * MIN); // 23:59: sigue siendo hoy
+  assert.throws(() => store.openDay(id, { text: 'casi medianoche' }), { code: 'days' });
+  advance(2 * MIN); // 00:01: fecha nueva, aunque no han pasado 24 h desde la primera charla
+  assert.equal(store.state(id).daysLeft, 7);
+  store.openDay(id, { text: 'mañana nueva' });
+  assert.equal(store.state(id).daysLeft, 6);
+});
+
+test('mi día: "hoy" es la fecha en la zona del teléfono, que llega con cada charla', () => {
+  const { store, id } = setup(); // 12:00 UTC = 21:00 en Tokio
+  store.openDay(id, { text: 'desde Tokio', tz: 'Asia/Tokyo' });
+  const s = store.state(id);
+  assert.equal(s.daysLeft, 6);
+  assert.equal(s.daysResetAt, Date.UTC(2026, 10, 12, 15)); // medianoche de Tokio, 3 h después
+  assert.equal(s.expiresAt, store.state(id).expiresAt); // la zona no toca el reloj
+});
+
+test('inicio del día local, también el día que cambia la hora', () => {
+  assert.equal(startOfLocalDay(Date.UTC(2026, 10, 12, 4, 59), ''), Date.UTC(2026, 10, 11, 5)); // 23:59 en Bogotá
+  assert.equal(startOfLocalDay(Date.UTC(2026, 10, 12, 5), 'America/Bogota'), Date.UTC(2026, 10, 12, 5));
+  // Nueva York pasa a horario de verano el 8 de marzo a las 2:00: la medianoche fue con el desfase de invierno (−5 h).
+  assert.equal(startOfLocalDay(Date.UTC(2026, 2, 8, 18), 'America/New_York'), Date.UTC(2026, 2, 8, 5));
+  assert.equal(startOfLocalDay(Date.UTC(2026, 10, 1, 18), 'America/New_York'), Date.UTC(2026, 10, 1, 4)); // y al volver
+  assert.equal(startOfLocalDay(Date.UTC(2026, 5, 1, 2), 'Asia/Kolkata'), Date.UTC(2026, 4, 31, 18, 30)); // desfase de media hora
 });
 
 test('mi día: la conversación que ve la IA', () => {
