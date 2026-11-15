@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
-import { openStore, AppError, DAYS_PER_DAY, cleanLang } from './store.js';
+import { openStore, AppError, DAYS_PER_DAY, cleanLang, cleanBio } from './store.js';
 import { createPush, trialFor, deliveredFor } from './push.js';
 import { createJudge } from './judge.js';
 import { createPayments, PRODUCTS, CURRENCY } from './payments.js';
@@ -21,7 +21,7 @@ if (config.onRailway && !config.hasVolume) {
 const store = openStore({ dir: config.dataDir, initialSeconds: config.initialSeconds, minWage: config.minWage });
 if (store.backupFile) log.info(`copia de seguridad antes de migrar: ${store.backupFile}`);
 const push = createPush(store, { ...config.vapid, log });
-const judge = createJudge({ log });
+const judge = createJudge({ log, usdCop: config.usdCop });
 if (!judge.enabled) log.warn('⚠ Guardián apagado: define ANTHROPIC_API_KEY para activar "Mi día".');
 if (!config.adminToken) log.warn('⚠ Panel /admin apagado: define ADMIN_TOKEN para activarlo.');
 const payments = createPayments({ ...config.stripe, log });
@@ -30,24 +30,28 @@ else if (!payments.webhookReady) log.warn('⚠ Falta STRIPE_WEBHOOK_SECRET: los 
 else log.info(`pagos con Stripe listos${payments.testMode ? ' (modo de prueba)' : ' (modo real)'}`);
 
 // Mantenimiento: devuelve códigos no reclamados, cierra días abandonados y juicios vencidos.
-setInterval(() => {
+// Corre también al arrancar: tras un deploy, lo que se venció mientras tanto se resuelve de una vez.
+function maintain() {
   try {
     store.expireTransfers();
     store.purgeDays();
     for (const v of store.closeTrials()) {
-      log.info(`juicio #${v.trialId}: ${v.verdict}${v.penalty ? ` (−${v.penalty}s)` : ''}`);
-      push.sendToUser(v.userId, { ...trialFor(v.verdict, v.lang), kind: 'trial' }).catch(() => {});
+      if (v.kind !== 'reward' && v.kind !== 'reconsider') log.info(`juicio #${v.trialId}: ${v.kind}${v.amount ? ` (${v.amount}s)` : ''}`);
+      push.sendToUser(v.userId, { ...trialFor(v.kind, v.lang, fmtSeconds(v.amount || 0)), kind: 'trial' }).catch(() => {});
     }
   } catch (err) {
     log.error('mantenimiento:', err);
   }
-}, 15_000).unref();
+}
+maintain();
+setInterval(maintain, 15_000).unref();
 const site = loadStatic(path.join(config.root, 'public'), {
   __INITIAL__: String(config.initialSeconds),
   __MIN_WAGE__: String(config.minWage),
   __DAYS_PER_DAY__: String(DAYS_PER_DAY),
   __PAYMENTS__: payments.enabled ? '1' : '0',
   __PRICES__: Object.entries(PRODUCTS).map(([k, pr]) => `${k}=${pr.price}`).join(';'),
+  __USD_COP__: String(config.usdCop),
 });
 
 const SECURITY = {
@@ -146,6 +150,7 @@ const limitClaims = limiter(10, 60_000); // contra adivinar códigos
 const limitAdmin = limiter(20, 60_000); // contra adivinar la clave de admin
 const limitAccuse = limiter(5, 60_000);
 const limitCheckout = limiter(10, 60_000);
+const limitBio = limiter(6, 3_600_000); // cada cambio de perfil pasa por la IA
 
 function fmtSeconds(s) {
   const d = Math.floor(s / 86_400), h = Math.floor((s % 86_400) / 3600), m = Math.floor((s % 3600) / 60);
@@ -154,13 +159,27 @@ function fmtSeconds(s) {
 
 /** Pide veredicto a la IA; si falla, el último mensaje se retira para poder reintentar. */
 async function runJudge(id, dayId) {
+  let strike = null;
   try {
-    store.saveVerdict(dayId, await judge.evaluate(store.judgeInput(id, dayId)));
+    ({ strike } = store.saveVerdict(dayId, await judge.evaluate(store.judgeInput(id, dayId))));
   } catch (err) {
     store.rollbackDay(dayId);
     throw err;
   }
-  return { day: store.publicDay(id, dayId), state: store.state(id) }; // el estado trae las charlas que le quedan hoy
+  // el estado trae las charlas que le quedan hoy; strike: subió contenido sexual y perdió tiempo
+  return { day: store.publicDay(id, dayId), state: store.state(id), strike };
+}
+
+/**
+ * Lo que otros jugadores van a ver pasa por el Guardián. Contenido sexual: falta (pierde tiempo).
+ * Otra cosa que no se puede publicar: se rechaza sin castigo. Devuelve la revisión.
+ */
+async function moderated(id, source, { kind, text, images, context, lang }) {
+  requireJudge();
+  const r = await judge.moderate({ kind, text, images, context, lang });
+  if (r.explicit) throw store.explicitStrike(id, source);
+  if (!r.allowed) throw new AppError(422, 'not_allowed', r.reason || 'El Guardián no dejó publicar eso', r.reason || "The Guardian didn't allow that");
+  return r;
 }
 
 /** Aplica una acción de pago (del webhook o de consultar el checkout). Idempotente. */
@@ -224,7 +243,7 @@ async function api(req, res, p, qs) {
   if (m === 'POST' && p === '/api/session') {
     if (!limitSessions(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un rato', 'Too many attempts, wait a while');
     const b = await readJson(req);
-    return send(res, 201, store.createUser({ nickname: b.nickname, deviceId: b.deviceId, ip: clientIp(req), lang }));
+    return send(res, 201, store.createUser({ nickname: b.nickname, deviceId: b.deviceId, ip: clientIp(req), lang, country: b.country, currency: b.currency }));
   }
 
   if (m === 'GET' && p === '/api/admin/stats') {
@@ -249,6 +268,16 @@ async function api(req, res, p, qs) {
     const b = await readJson(req);
     if (b?.remindEvery !== undefined) return send(res, 200, store.setReminder(id, b.remindEvery, b.tz));
     if (typeof b?.ranked === 'boolean') return send(res, 200, store.setRanked(id, b.ranked));
+    if (typeof b?.country === 'string') return send(res, 200, store.setCountry(id, b.country));
+    if (typeof b?.currency === 'string') return send(res, 200, store.setCurrency(id, b.currency));
+    if (typeof b?.bio === 'string') {
+      const bio = cleanBio(b.bio);
+      if (bio && bio !== user.bio) {
+        if (!limitBio(id)) throw new AppError(429, 'rate', 'Cambiaste tu perfil muchas veces: espera un rato', 'You changed your profile too many times: wait a while');
+        await moderated(id, 'perfil', { kind: 'bio', text: bio, lang: lang || user.lang });
+      }
+      return send(res, 200, store.setBio(id, bio));
+    }
     return send(res, 200, store.setNickname(id, b.nickname));
   }
 
@@ -345,16 +374,24 @@ async function api(req, res, p, qs) {
   if (m === 'POST' && p === '/api/trials') {
     if (!limitAccuse(id)) throw new AppError(429, 'rate', 'Más despacio', 'Slow down');
     const b = await readJson(req);
-    const r = store.accuse(id, { target: b.target, reason: b.reason, text: b.text });
+    const { text } = store.accuseCheck(id, b); // primero si puede (sin gastar IA)
+    if (text) await moderated(id, 'acusacion', { kind: 'accusation', text, lang: lang || user.lang });
+    const r = store.accuse(id, { target: b.target, reason: b.reason, text });
     if (r.notify) push.sendToUser(r.notify.userId, { ...trialFor('open', r.notify.lang), kind: 'trial' }).catch(() => {});
-    return send(res, 201, { opened: r.opened, trialId: r.trialId ?? null, count: r.count, needed: r.needed });
+    return send(res, 201, { opened: r.opened, trialId: r.trialId, people: r.people, count: r.count, needed: r.needed, weight: r.weight, stake: r.stake });
   }
   const trial = /^\/api\/trials\/(\d+)(?:\/(vote|defense))?$/.exec(p);
   if (trial) {
     const trialId = Number(trial[1]);
     if (m === 'GET' && !trial[2]) return send(res, 200, store.trial(id, trialId));
     if (m === 'POST' && trial[2] === 'vote') return send(res, 200, store.vote(id, trialId, (await readJson(req)).vote));
-    if (m === 'POST' && trial[2] === 'defense') return send(res, 200, store.defend(id, trialId, (await readJson(req)).text));
+    if (m === 'POST' && trial[2] === 'defense') {
+      // La defensa exige pruebas (fotos). El Guardián las revisa y le cuenta al jurado qué muestran.
+      const b = await readJson(req, 6_000_000);
+      const checked = store.defenseCheck(id, trialId, b);
+      const review = await moderated(id, 'juicio', { kind: 'defense', ...checked, lang: lang || user.lang });
+      return send(res, 200, store.defend(id, trialId, { text: checked.text, images: b.images, review }));
+    }
   }
 
   if (p === '/api/push' && (m === 'POST' || m === 'DELETE')) {

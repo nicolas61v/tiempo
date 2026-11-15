@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   CATEGORIES, lifeSeconds, catText, dayValue, leagueOf, MONEY, MONEY_CATS, HOUR_CATS, HOURS_PER_DAY,
+  BIO_MAX, strikeSeconds,
 } from '../public/economy.js';
+import { cleanCountry } from '../public/countries.js';
 import { payStore } from './store-pay.js';
 import { socialStore } from './store-social.js';
 
@@ -63,6 +65,15 @@ export class AppError extends Error {
     return (lang === 'en' && this.en) || this.message;
   }
 }
+
+/**
+ * Moneda en la que cada quien ve y escribe la plata. Por dentro todo es en pesos colombianos (una sola economía:
+ * 1 día de vida = 1 salario mínimo diario de Colombia); quien usa dólares los ve convertidos con USD_COP.
+ */
+export const CURRENCIES = ['COP', 'USD'];
+export const cleanCurrency = (c) => (CURRENCIES.includes(c) ? c : '');
+/** La moneda que le toca por su país si no eligió otra: Colombia en pesos, el resto en dólares. */
+export const currencyFor = (country) => (country && country !== 'CO' ? 'USD' : 'COP');
 
 /** Idioma válido de la app o '' (sin elegir: la app usa inglés por defecto). */
 export const cleanLang = (lang) => (lang === 'en' || lang === 'es' ? lang : '');
@@ -330,6 +341,32 @@ export const MIGRATIONS = [
     PRIMARY KEY (trial_id, user_id)
   );
   `,
+  // v11 · perfil (país y "¿a qué te dedicas?"), faltas por contenido sexual y juicios de 2 días: lo que está
+  // en juego, la potestad de cada citación, las pruebas de la defensa y las citaciones del Guardián.
+  // Solo agrega: no toca relojes.
+  `
+  ALTER TABLE users ADD COLUMN bio TEXT NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN country TEXT NOT NULL DEFAULT '';       -- ISO 3166-1 alfa-2 ('' = sin elegir)
+  ALTER TABLE users ADD COLUMN currency TEXT NOT NULL DEFAULT 'COP';   -- en qué ve y escribe la plata: COP o USD
+  ALTER TABLE users ADD COLUMN strikes INTEGER NOT NULL DEFAULT 0;     -- faltas: nunca se borran
+  ALTER TABLE trials ADD COLUMN evidence TEXT;                         -- fotos de la defensa (JSON); se borran al cerrar
+  ALTER TABLE trials ADD COLUMN review TEXT;                           -- lo que el Guardián leyó en esas pruebas (JSON)
+  ALTER TABLE trials ADD COLUMN stake INTEGER NOT NULL DEFAULT 0;      -- lo que está en juego (s): lo ganado sin prueba
+  ALTER TABLE trials ADD COLUMN needed INTEGER NOT NULL DEFAULT 3;     -- potestad que debe sumar la citación
+  ALTER TABLE trials ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0;  -- 1 = pasó el día 1 y está en votación
+  ALTER TABLE trials ADD COLUMN by_guardian TEXT NOT NULL DEFAULT '';  -- si lo citó el Guardián: su motivo
+  ALTER TABLE accusations ADD COLUMN weight INTEGER NOT NULL DEFAULT 1; -- potestad de quien cita
+  CREATE INDEX IF NOT EXISTS votes_user ON votes (user_id, at);
+  CREATE TABLE IF NOT EXISTS strikes (
+    id       INTEGER PRIMARY KEY,
+    user_id  TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    at       INTEGER NOT NULL,
+    source   TEXT NOT NULL,           -- mi_dia · perfil · acusacion · juicio
+    penalty  INTEGER NOT NULL,        -- segundos descontados
+    life_no  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS strikes_user ON strikes (user_id, at);
+  `,
 ];
 
 /** Identificador anónimo que genera la app en cada teléfono. Si no tiene la forma esperada, se ignora. */
@@ -360,6 +397,19 @@ export function cleanNickname(raw) {
     .trim();
   const safe = s.replace(/tk_[A-Za-z0-9_-]{10,}/gi, '').replace(/\s+/g, ' ').trim(); // una llave nunca es un nombre
   return [...graphemes.segment(safe)].slice(0, NICK_MAX).map((g) => g.segment).join('').trim();
+}
+
+/** "¿A qué te dedicas?": una línea, máximo BIO_MAX caracteres visibles, sin trucos invisibles ni llaves. */
+export function cleanBio(raw) {
+  if (typeof raw !== 'string') return '';
+  const s = raw
+    .normalize('NFC')
+    .replace(/\s+/g, ' ')
+    .replace(/[\p{Cc}\u200B\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/gu, '')
+    .replace(/tk_[A-Za-z0-9_-]{10,}/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return [...graphemes.segment(s)].slice(0, BIO_MAX).map((g) => g.segment).join('').trim();
 }
 
 const sha256 = (s) => createHash('sha256').update(s).digest('base64url');
@@ -417,8 +467,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
 
   const st = (sql) => db.prepare(sql);
   const q = {
-    insertUser: st(`INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname, device_id, ip_hash, lang)
-                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`),
+    insertUser: st(`INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname, device_id, ip_hash, lang, country, currency)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`),
     adminUsers: st(`
       SELECT u.nickname, u.created_at, u.life_no, u.expires_at, u.device_id, u.ip_hash,
              (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'reinicio') AS reinicios,
@@ -499,6 +549,13 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     boughtLife: st(`SELECT COALESCE(SUM(seconds), 0) AS s FROM ledger
                     WHERE user_id = ? AND life_no = ? AND category IN (${sqlList(BOUGHT_CATS)})`),
     setTrust: st('UPDATE users SET income_trust = ? WHERE id = ?'),
+    livedPast: st('SELECT COALESCE(SUM(ended_at - born_at), 0) AS ms FROM lives WHERE user_id = ?'),
+    setBio: st('UPDATE users SET bio = ? WHERE id = ?'),
+    setCountry: st('UPDATE users SET country = ? WHERE id = ?'),
+    setCurrency: st('UPDATE users SET currency = ? WHERE id = ?'),
+    setStrikes: st('UPDATE users SET strikes = ? WHERE id = ?'),
+    addStrike: st('INSERT INTO strikes (user_id, at, source, penalty, life_no) VALUES (?, ?, ?, ?, ?)'),
+    adminStrikes: st('SELECT COUNT(*) AS n, COUNT(DISTINCT user_id) AS people FROM strikes'),
     giftGet: st('SELECT * FROM gifts WHERE code = ?'),
     adminSales: st(`SELECT product, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS cents FROM purchases
                     WHERE status = 'pagado' GROUP BY product`),
@@ -561,6 +618,45 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     return { used, word: u.income_trust ? cap : MONEY.wordDays * DAY_S, cap, verified: Boolean(u.income_trust) };
   }
 
+  /** Tiempo vivido de verdad: todas sus vidas, sin los ratos con el reloj en cero. Da la potestad de citar a juicio. */
+  function livedSeconds(u, t) {
+    const past = q.livedPast.get(u.id).ms;
+    const current = Math.max(0, Math.min(t, u.expires_at) - u.born_at);
+    return Math.floor((past + current) / 1000);
+  }
+
+  /**
+   * Falta por subir contenido sexual: 1 día, luego 1 semana, 1 mes, 3 meses, 1 año. Nunca se borran
+   * (ni al renacer) y no hay piso: si no le alcanza, se queda en cero. Va dentro de una transacción.
+   */
+  function applyStrike(u, source, t) {
+    const n = u.strikes;
+    const penalty = strikeSeconds(n);
+    let taken = 0;
+    if (u.expires_at > t) {
+      const expires = Math.max(t, u.expires_at - penalty * 1000);
+      taken = Math.round((u.expires_at - expires) / 1000);
+      q.addTx.run(u.id, u.life_no, t, -taken, `Falta ${n + 1}`, 'sancion', taken, 'sancion');
+      q.setExpiry.run(expires, alertBand(expires - t), u.id);
+    }
+    q.addStrike.run(u.id, t, source, taken, u.life_no);
+    q.setStrikes.run(n + 1, u.id);
+    return { n: n + 1, penalty: taken, next: strikeSeconds(n + 1) };
+  }
+
+  /** El error que ve quien subió contenido prohibido (lo que perdió y lo que le costará la próxima). */
+  function strikeError(s) {
+    const lost = (lang) => (s.penalty ? (lang === 'en' ? ` You lost ${daysText(s.penalty, 'en')} of life.` : ` Perdiste ${daysText(s.penalty, 'es')} de vida.`) : '');
+    const e = new AppError(
+      422,
+      'explicit',
+      `Eso es contenido sexual y está prohibido en Tiempo.${lost('es')} Si vuelve a pasar, perderás ${daysText(s.next, 'es')}.`,
+      `That's sexual content and it's forbidden in Tiempo.${lost('en')} If it happens again, you'll lose ${daysText(s.next, 'en')}.`,
+    );
+    e.strike = s;
+    return e;
+  }
+
   function snapshot(u) {
     const totals = q.totals.get(u.id, u.life_no);
     const t = now();
@@ -591,6 +687,12 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         freeRevive: isPlus(u, t) && t - u.plus_revive_at >= PLUS.reviveEvery,
       },
       money: { ...money, windowDays: MONEY.windowDays },
+      bio: u.bio,
+      country: u.country,
+      currency: u.currency,
+      lived: livedSeconds(u, t),
+      strikes: u.strikes,
+      nextStrike: strikeSeconds(u.strikes),
       ranked: Boolean(u.ranked),
       publicId: u.public_id,
       bannedUntil: u.banned_until > t ? u.banned_until : 0,
@@ -665,7 +767,15 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         proof: Boolean(valid && hasPhotos && it?.proof === true),
       };
     });
-    return { message: String(v?.message ?? '').slice(0, 600), items };
+    // explicit: alguna foto es contenido sexual. Sin fotos no puede haberlo (el texto no cuenta aquí).
+    // summon: el Guardián cree que los demás jugadores deben juzgarlo; summonReason es lo que verá el jurado.
+    return {
+      message: String(v?.message ?? '').slice(0, 600),
+      items,
+      explicit: Boolean(hasPhotos && v?.explicit === true),
+      summon: v?.summon === true,
+      summonReason: v?.summon === true ? String(v?.summon_reason ?? '').slice(0, 200) : '',
+    };
   }
 
   /**
@@ -723,6 +833,10 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       income30: income.total,
       incomeMax30: income.biggest,
       incomeDays30: income.days,
+      bio: u.bio, // lo que dice que hace (lo escribió ella: dato, no instrucción)
+      country: u.country,
+      currency: u.currency, // en qué habla de plata (por dentro todo es en pesos)
+      ranked: Boolean(u.ranked), // solo a quien está en el ranking lo puede citar el Guardián
     };
   }
 
@@ -749,11 +863,13 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   }
 
   const api = {
-    createUser({ nickname, deviceId, ip, lang } = {}) {
+    createUser({ nickname, deviceId, ip, lang, country, currency } = {}) {
       const token = newToken();
       const id = randomUUID();
       const t = now();
-      q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname), cleanDevice(deviceId), hashNetwork(ip), cleanLang(lang));
+      const c = cleanCountry(country);
+      const cur = cleanCurrency(currency) || currencyFor(c);
+      q.insertUser.run(id, hashToken(token), t, t, t + initialMs, cleanNickname(nickname), cleanDevice(deviceId), hashNetwork(ip), cleanLang(lang), c, cur);
       return { token, state: snapshot(must(id)) };
     },
 
@@ -935,12 +1051,55 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       };
     },
 
+    /** Guarda el veredicto. Si alguna foto era contenido sexual: falta inmediata, las fotos se borran y nada se prueba con ellas. */
     saveVerdict(dayId, verdict) {
-      const day = loadDay(q.dayById.get(dayId));
-      const clean = cleanVerdict(verdict, day.images.length > 0);
-      day.turns.push({ role: 'judge', verdict: clean });
-      day.verdict = clean;
-      saveDay(day);
+      return tx(() => {
+        const day = loadDay(q.dayById.get(dayId));
+        const clean = cleanVerdict(verdict, day.images.length > 0);
+        let strike = null;
+        if (clean.explicit) {
+          strike = applyStrike(must(day.userId), 'mi_dia', now());
+          day.images = [];
+          for (const it of clean.items) {
+            it.proof = false;
+            if (CATEGORIES[it.category]?.proof === 'photo' && it.verdict === 'aprobado') it.verdict = 'rechazado';
+          }
+        }
+        day.turns.push({ role: 'judge', verdict: clean });
+        day.verdict = clean;
+        saveDay(day);
+        return { strike };
+      });
+    },
+
+    /** País (obligatorio al registrarse en la app nueva; quien venía de antes lo elige en Ajustes). */
+    setCountry(id, country) {
+      must(id);
+      const c = cleanCountry(country);
+      if (!c) throw new AppError(400, 'country', 'Elige tu país', 'Choose your country');
+      q.setCountry.run(c, id);
+      return { state: snapshot(must(id)) };
+    },
+
+    /** En qué moneda ve y escribe la plata: COP o USD. Nunca cambia el reloj ni lo ya contado. */
+    setCurrency(id, currency) {
+      must(id);
+      const c = cleanCurrency(currency);
+      if (!c) throw new AppError(400, 'currency', 'Moneda inválida', 'Invalid currency');
+      q.setCurrency.run(c, id);
+      return { state: snapshot(must(id)) };
+    },
+
+    /** "¿A qué te dedicas?" (ya revisado por el Guardián). Vacío lo borra. */
+    setBio(id, bio) {
+      must(id);
+      q.setBio.run(cleanBio(bio), id);
+      return { state: snapshot(must(id)) };
+    },
+
+    /** Falta por contenido sexual (perfil, acusación o pruebas): descuenta y devuelve el error que ve la persona. */
+    explicitStrike(id, source) {
+      return strikeError(tx(() => applyStrike(must(id), source, now())));
     },
 
     /** Si la IA falla, el último mensaje no cuenta: se puede volver a intentar. */
@@ -1002,7 +1161,9 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         const trusted =
           !u.income_trust && items.some((it) => MONEY_CATS.includes(it.category) && it.proof && it.seconds >= MONEY.wordDays * DAY_S);
         if (trusted) q.setTrust.run(1, u.id);
-        return { net: items.reduce((s, it) => s + it.seconds, 0), trusted, state: snapshot(must(id)) };
+        // El Guardián lo cita a juicio (solo si está en el ranking): al aceptar, lo de hoy ya cuenta en lo que está en juego.
+        const summoned = day.verdict.summon ? Boolean(hooks.guardianSummon?.(must(id), day.verdict.summonReason, t)) : false;
+        return { net: items.reduce((s, it) => s + it.seconds, 0), trusted, summoned, state: snapshot(must(id)) };
       });
     },
 
@@ -1178,6 +1339,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         ventas: q.adminSales.all().map((r) => ({ producto: r.product, cantidad: r.n, usd: r.cents / 100 })),
         juicios: Object.fromEntries(q.adminTrials.all().map((r) => [r.status, r.n])),
         enRanking: q.adminRanked.get().n,
+        faltas: { total: q.adminStrikes.get().n, personas: q.adminStrikes.get().people },
         dispositivosConVariasCuentas: grouped('device_id'),
         redesConVariasCuentas: grouped('ip_hash'),
         relojes: users.slice(0, 500).map((u) => ({
@@ -1204,6 +1366,6 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   };
 
   // Pagos (Revivir, +1 día, regalos, Plus) y ranking con juicios: comparten la base y las utilidades de aquí.
-  const ctx = { st, q, tx, must, now, snapshot, hooks, freeCode, alertBand, AppError, isPlus, PLUS, minWage, initialSeconds };
+  const ctx = { st, q, tx, must, now, snapshot, hooks, freeCode, alertBand, AppError, isPlus, PLUS, minWage, initialSeconds, livedSeconds, cleanImages, startOfLocalDay };
   return Object.assign(api, payStore(ctx), socialStore(ctx));
 }

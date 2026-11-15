@@ -674,6 +674,53 @@ test('migración v10: pagos, ranking y juicios llegan sin tocar ningún reloj', 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('migración v11: perfil, faltas y pruebas de los juicios llegan sin tocar ningún reloj', () => {
+  const dir = tmpDir();
+  const raw = new DatabaseSync(path.join(dir, 'tiempo.db'));
+  for (const sql of MIGRATIONS.slice(0, 10)) raw.exec(sql); // la base como estaba en v10
+  raw.exec('PRAGMA user_version = 10');
+  const token = 'tk_tia_000000000000000000000000';
+  const expires = Date.UTC(2026, 11, 1, 1, 2, 3);
+  raw
+    .prepare('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname, ranked, public_id) VALUES (?, ?, 1, 3, 1, ?, ?, 1, ?)')
+    .run('u1', createHash('sha256').update(token).digest('base64url'), expires, 'Tía', 'abcdEFGH');
+  raw.prepare(`INSERT INTO trials (user_id, opened_at, defense_until, vote_until) VALUES ('u1', 1, 2, 3)`).run();
+  raw.prepare(`INSERT INTO accusations (target, accuser, reason, at, trial_id) VALUES ('u1', 'u1', 'otro', 1, 1)`).run();
+  raw.close();
+
+  const store = openStore({ dir, minWage: WAGE });
+  const s = store.state(store.auth(token).id);
+  assert.deepEqual([s.expiresAt, s.lifeNo, s.ranked, s.publicId], [expires, 3, true, 'abcdEFGH']);
+  assert.deepEqual([s.bio, s.country, s.currency, s.strikes, s.nextStrike], ['', '', 'COP', 0, 86_400]); // quien venía de antes sigue en pesos
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('país y moneda: Colombia en pesos, el resto en dólares; por dentro todo es en pesos y nada toca el reloj', () => {
+  const store = openStore({ minWage: WAGE });
+  const co = store.createUser({ country: 'co' }).state;
+  assert.deepEqual([co.country, co.currency], ['CO', 'COP']);
+  const mx = store.createUser({ country: 'MX' }).state;
+  assert.deepEqual([mx.country, mx.currency], ['MX', 'USD']);
+  assert.equal(store.createUser({ country: 'MX', currency: 'COP' }).state.currency, 'COP');
+  assert.deepEqual([store.createUser().state.country, store.createUser({ country: 'ZZ' }).state.country], ['', '']); // una app vieja no manda país
+  const id = store.auth(store.createUser({ country: 'US' }).token).id;
+  assert.throws(() => store.setCountry(id, 'Narnia'), { code: 'country' });
+  assert.throws(() => store.setCurrency(id, 'EUR'), { code: 'currency' });
+  const before = store.state(id).expiresAt;
+  assert.equal(store.setCurrency(id, 'COP').state.currency, 'COP');
+  assert.equal(store.setCountry(id, 'co').state.country, 'CO');
+  assert.equal(store.state(id).expiresAt, before);
+
+  store.setCurrency(id, 'USD'); // el Guardián sabe en qué moneda le habla
+  const input = store.judgeInput(id, store.openDay(id, { text: 'gané 100 dólares' }).id);
+  assert.deepEqual([input.context.country, input.context.currency], ['CO', 'USD']);
+  const text = buildContent({ ...input, usdCop: 4000 }).at(-1).text;
+  assert.match(text, /País: Colombia\. Moneda en la que habla de plata: dólares \(USD\)/);
+  assert.match(text, /\$\s?700\.000 \(unos \$175\)/); // sus montos también en dólares
+  assert.match(systemFor('es', { usdCop: 4000 }), /su moneda es USD/);
+});
+
 test('el reloj parte en años, meses, semanas y días', () => {
   assert.deepEqual(split(7 * DAY), { y: 0, mo: 0, w: 1, d: 0, h: 0, m: 0, s: 0 });
   assert.deepEqual(split(7 * DAY - 1000), { y: 0, mo: 0, w: 0, d: 6, h: 23, m: 59, s: 59 });

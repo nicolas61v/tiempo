@@ -32,22 +32,35 @@ const REMINDERS = {
 };
 export const reminderFor = (hour, lang) => (REMINDERS[lang] || REMINDERS.en).find((r) => hour < r.until);
 
-// Juicios del jurado: al abrirse (al acusado) y al cerrarse (el veredicto).
+// Juicios: a quién se cita, cómo va cada día y lo que gana cada uno. {x} = tiempo.
 const TRIALS = {
   es: {
-    open: { title: 'Te llevaron a juicio', body: 'Otros jugadores dudan de tu tiempo. Tienes 24 h para defenderte en Ranking → Juicios.' },
-    culpable: { title: 'El jurado te declaró culpable', body: 'Pierdes lo ganado sin prueba esa semana y sales del ranking por 30 días.' },
-    inocente: { title: 'Absuelto', body: 'El jurado te declaró inocente. Nadie puede juzgarte otra vez en 14 días.' },
-    sin_quorum: { title: 'Juicio cerrado', body: 'No votaron suficientes jurados: quedas libre.' },
+    open: { title: 'Te citaron a juicio', body: 'Hoy decide la gente si vas a juicio. Defiéndete con pruebas antes de que acabe el día o serás culpable.' },
+    guardian: { title: 'El Guardián te llevó a juicio', body: 'Defiéndete con pruebas antes de que acabe el día o serás culpable.' },
+    archivado: { title: 'Citación archivada', body: 'No se juntó la potestad para llevarte a juicio. Quedas libre.' },
+    votacion: { title: 'Tu juicio pasa a votación', body: 'Mañana se revela el veredicto. Los votos son secretos.' },
+    reconsider: { title: 'Se defendió con pruebas', body: 'El juicio que pediste pasa a votación: mira las pruebas y decide hoy.' },
+    culpable: { title: 'Culpable', body: 'Perdiste {x}: se reparte entre quienes votaron. Sales del ranking por 30 días.' },
+    inocente: { title: 'Inocente', body: 'Conservas lo que estaba en disputa y ganas {x}. Nadie puede juzgarte en 14 días.' },
+    sin_quorum: { title: 'Juicio cerrado', body: 'No votaron suficientes jugadores: quedas libre.' },
+    reward: { title: 'El jurado decidió', body: 'Ganaste {x} por tu voto.' },
   },
   en: {
-    open: { title: "You've been put on trial", body: 'Other players doubt your time. You have 24 h to defend yourself in Ranking → Trials.' },
-    culpable: { title: 'The jury found you guilty', body: "You lose what you earned without proof that week and you're out of the ranking for 30 days." },
-    inocente: { title: 'Acquitted', body: 'The jury found you innocent. Nobody can try you again for 14 days.' },
-    sin_quorum: { title: 'Trial closed', body: "Not enough jurors voted: you're free." },
+    open: { title: "You've been summoned to trial", body: "Today people decide if you go to trial. Defend yourself with proof before the day ends or you'll be guilty." },
+    guardian: { title: 'The Guardian put you on trial', body: "Defend yourself with proof before the day ends or you'll be guilty." },
+    archivado: { title: 'Summons dismissed', body: "There wasn't enough power to take you to trial. You're free." },
+    votacion: { title: 'Your trial goes to a vote', body: 'The verdict is revealed tomorrow. Votes are secret.' },
+    reconsider: { title: 'They defended themselves with proof', body: 'The trial you asked for goes to a vote: look at the proof and decide today.' },
+    culpable: { title: 'Guilty', body: "You lost {x}: it's split among those who voted. You're out of the ranking for 30 days." },
+    inocente: { title: 'Innocent', body: 'You keep what was in dispute and win {x}. Nobody can try you for 14 days.' },
+    sin_quorum: { title: 'Trial closed', body: "Not enough players voted: you're free." },
+    reward: { title: 'The jury decided', body: 'You won {x} for your vote.' },
   },
 };
-export const trialFor = (kind, lang) => (TRIALS[lang] || TRIALS.en)[kind];
+export function trialFor(kind, lang, x = '') {
+  const m = (TRIALS[lang] || TRIALS.en)[kind] || (TRIALS[lang] || TRIALS.en).sin_quorum;
+  return { title: m.title, body: m.body.replace('{x}', x) };
+}
 
 /** A quien regaló: su tiempo (o su regalo comprado) llegó. */
 export function deliveredFor(lang, { name, dur, gift }) {

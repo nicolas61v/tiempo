@@ -25,6 +25,8 @@ export const config = {
     secretKey: (env.STRIPE_SECRET_KEY || '').trim(),
     webhookSecret: (env.STRIPE_WEBHOOK_SECRET || '').trim(),
   },
+  // Pesos por dólar: quien usa la app en dólares ve y escribe la plata en USD (por dentro todo es en pesos).
+  usdCop: Number(env.USD_COP) || 4000,
   // A dónde vuelve la gente después de pagar si el navegador no dice de dónde salió (normalmente sí lo dice).
   publicUrl: (env.PUBLIC_URL || (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : '')).replace(/\/+$/, ''),
   onRailway: Boolean(env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_PROJECT_ID),

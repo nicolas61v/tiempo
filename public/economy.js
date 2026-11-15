@@ -43,7 +43,29 @@ export const CATEGORIES = {
   reembolso: { dir: -1, unit: 'seconds', rate: 1, system: true, bought: true, label: 'Reembolso', en: { label: 'Refund' } },
   // ── Juicios (rank: la condena sí descuenta en el ranking) ──
   juicio: { dir: -1, unit: 'seconds', rate: 1, system: true, rank: true, label: 'Condena del jurado', en: { label: 'Jury sentence' } },
+  // ── Premio del jurado: parte de lo que estaba en juego, o 1 día por votar bien a un inocente (no cuenta en el ranking) ──
+  jurado: { dir: 1, unit: 'seconds', rate: 1, system: true, label: 'Premio del jurado', en: { label: 'Jury reward' } },
+  // ── Faltas: subir contenido sexual cuesta vida (1 día, 1 semana, 1 mes…) ──
+  sancion: { dir: -1, unit: 'seconds', rate: 1, system: true, rank: true, label: 'Falta: contenido prohibido', en: { label: 'Strike: forbidden content' } },
 };
+
+/** "¿A qué te dedicas?": lo que cada quien cuenta de sí en su perfil (lo revisa el Guardián). */
+export const BIO_MAX = 160;
+
+/**
+ * Potestad para citar a juicio según el tiempo vivido de verdad (todas tus vidas, sin los ratos en cero;
+ * no el tiempo ganado). Con menos de 15 días no se puede. Un juicio se abre al sumar 3 de potestad.
+ */
+export const ACCUSE_POWER = [
+  { days: 15, power: 1 },
+  { days: 30, power: 2 },
+  { days: 90, power: 3 },
+];
+export const powerOf = (livedSeconds) => ACCUSE_POWER.findLast((p) => livedSeconds >= p.days * 86_400)?.power ?? 0;
+
+/** Faltas por contenido sexual: lo que cuesta cada una, en días. Nunca se borran; de la quinta en adelante, un año. */
+export const STRIKE_DAYS = [1, 7, 30, 90, 365];
+export const strikeSeconds = (n) => STRIKE_DAYS[Math.min(n, STRIKE_DAYS.length - 1)] * 86_400;
 
 /** Categorías que suman dinero (en tu palabra o con el Guardián) y las que se miden en horas. */
 export const MONEY_CATS = ['ingreso', 'inversion'];
