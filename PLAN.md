@@ -1,7 +1,7 @@
 # Tiempo: plan de trabajo
 
 > Para quien retome el proyecto (persona o Claude). Lee **Reglas que no se rompen** antes de tocar nada.
-> Actualizado: 2026-11-13.
+> Actualizado: 2026-11-15.
 
 ## Qué es y qué ya existe
 
@@ -10,7 +10,7 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
 (SMMLV 2026 $1.750.905 / 30 = $58.364).
 
 - **Stack**: Node 24 sin framework, SQLite integrado (`node:sqlite`) con migraciones versionadas
-  (`MIGRATIONS` en `server/store.js`, hoy v1–v9), `web-push` y el SDK de Anthropic. Frontend vanilla sin
+  (`MIGRATIONS` en `server/store.js`, hoy v1–v10), `web-push` y el SDK de Anthropic. Frontend vanilla sin
   build en `public/`. Detalle en `README.md`.
 - **Deploy**: push a `main` → Railway despliega solo. Volumen en `/data`. Producción:
   `tiempo-production-79dc57d3.up.railway.app`.
@@ -30,6 +30,9 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
   - **Idiomas**: inglés (por defecto, decisión del dueño) y español; se cambia en Ajustes → Language y queda
     en el teléfono (`public/i18n.js`). El servidor responde errores, avisos push y al Guardián en el idioma
     de la app (encabezado `X-Lang`, columna `users.lang`). La economía sigue en pesos colombianos.
+  - **En la rama `pagos-ranking` (sin publicar en `main`)**: pagos con Stripe, ranking con ligas y perfiles
+    públicos, juicios del jurado, límites de dinero con confianza del Guardián y un Guardián que exige que el día
+    sea humanamente posible. Detalle en la tarea 2 y en el `README.md`. Migración v10 (solo agrega).
 
 ## Reglas que no se rompen
 
@@ -83,49 +86,46 @@ nueva arranque en el dominio definitivo.
 - **Listo cuando**: un reloj creado en el dominio viejo se abre en el nuevo con un toque y `expiresAt`
   idéntico. Probarlo de punta a punta con dos orígenes locales (`127.0.0.1` y `localhost`).
 
-### 2. Pagos: Revivir + Plus
+### 2. Pagos, ranking y juicios: hecho en la rama `pagos-ranking` (falta probarlo con Stripe y publicarlo)
 
-Pagos globales y anónimos para el usuario (el pago se ata a la llave, no a una cuenta; el procesador solo
-pide un correo para el recibo). La app es web y no está en tiendas, así que **no** paga el 30 % a
-Apple/Google ni usa compras dentro de la app.
+Pedido del dueño (2026-11-15): Stripe en una rama aparte y "dejar todo listo para solo pegar la clave y el
+webhook"; ranking para ver quién va ganando más tiempo y **qué hace cada uno**; un límite a lo que se gana por
+dinero; un Guardián que no se trague días imposibles ("9 h de gym", "aprendí 10 cálculos") y que pregunte por
+ingresos raros (1.000 USD de un día para otro), pero que confíe más en quien ya los probó; y juicios de los
+jugadores contra quien sea sospechosamente rico en tiempo.
 
-**Procesador (decisión del dueño)**: hasta donde sabemos, Stripe no acepta vendedores de Colombia (hay que
-verificarlo en stripe.com/global). Opciones: **Lemon Squeezy o Paddle** (vendedor oficial: cobran en todo el
-mundo y manejan el IVA de cada país; mejor para empezar) o **Stripe Atlas** (LLC en Delaware, unos $500 USD
-más costos anuales). Por eso: **una capa de proveedor intercambiable** en `server/payments.js`:
+**Qué hay** (todo con pruebas en `test/pay.test.js`, `test/social.test.js` y `test/store.test.js`; 60 en total):
 
-```js
-createCheckout({ userId, product }) → { url }          // página de pago del proveedor (redirección, no iframe)
-parseWebhook(req, rawBody) → { type: 'paid' | 'refunded', userId, product, ref } // verifica la firma
-```
+- **Stripe sin dependencias** (`server/payments.js`): checkout por redirección con `price_data` (no hay que crear
+  productos en Stripe), webhook con firma HMAC verificada a mano, eventos de facturas en las dos formas de la API.
+  Capa intercambiable: el resto de la app solo ve acciones (`paid`, `renewed`, `plus_ended`, `refunded`…).
+  Al volver del pago, si el webhook no ha llegado, el servidor le pregunta a Stripe (servidor a servidor).
+- **Productos** (precios en `PRODUCTS`): Plus US$2,99/mes · Revivir US$0,99 (1 día, conserva vida, récord e
+  historial) · +1 día US$0,99 (uno por semana, nunca en la última hora) · Regalo de 1 semana US$3,99 (código + QR
+  por el mismo flujo de transferencias; uno comprado por persona y semana). Lo comprado nunca cuenta en el
+  ranking. Plus nunca da tiempo. Renacer gratis sigue siendo el botón principal en cero.
+- **Límites de dinero** (`MONEY` en `economy.js`): 7 días de vida por semana en tu palabra, 30 para todos. El
+  Guardián marca `proof` cuando una foto respalda un ítem (el servidor solo lo acepta si hay fotos); un ingreso
+  ≥ 7 días aprobado con prueba sube la confianza (`users.income_trust`).
+- **Día humano**: estudio + ejercicio + proyecto ≤ 16 h en 24 h (servidor) y reglas de plausibilidad en el prompt.
+  El Guardián recibe un bloque "Datos del servidor" (horas ya contadas, dinero que le cabe, verificado o no,
+  ingresos de 30 días). Plus usa `claude-sonnet-5-5` con `fallbacks: 'default'`; los demás, Haiku 5.5.
+- **Ranking** (`server/store-social.js`): por elección y con nombre; tablas *semana* y *tiempo*; ligas; perfil
+  público con de dónde sale el tiempo y las actividades de 30 días.
+- **Juicios**: reglas en la cabecera de `store-social.js` (`TRIAL`). Avisos push al abrirse y al cerrarse.
 
-**Productos** (empezar por a y b):
+**Para publicarlo** (en este orden):
 
-- **a. Revivir** (pago único, ~US$1): con el reloj en cero (fase `dead`), en vez de "Renacer" desde cero
-  revive conservando su número de vida, récord e historial. ¿Con cuánto tiempo? Propuesta: 1 día (lo decide
-  el dueño).
-- **b. Plus** (suscripción, ~US$3/mes): "Mi día" sin el límite de 7 charlas (`DAYS_PER_DAY` en `store.js`),
-  Guardián con Sonnet en vez de Haiku (`JUDGE_MODEL`/`judge.js`), estadísticas de vidas, temas de color,
-  exportar el historial.
-- **c. Regalar tiempo comprado** (paquetes de 1 día o 1 semana) usando el flujo de transferencias
-  (código + QR), lo que también trae usuarios nuevos.
-- **d. (Opcional, con tope) comprar tiempo para uno mismo**: máximo 1 día por semana para que ganarlo
-  haciendo cosas siga teniendo sentido. **Nunca** ofrecerlo en fase `critical` (última hora): eso es
-  presionar con miedo.
+1. El dueño pega `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` **de prueba** en Railway (pasos en el README).
+2. Probar en producción con la tarjeta 4242: Plus, +1 día, regalo (reclamarlo desde otro reloj) y Revivir
+   (con un reloj de prueba en cero). Un reembolso desde el panel de Stripe debe descontar el tiempo.
+3. Probar "Mi día" con la API real: un día imposible, un ingreso grande sin prueba (debe pedir comprobante) y
+   con prueba (debe dar confianza). Esto gasta tokens: no se probó contra la API en esta sesión.
+4. Merge a `main` con la sonda de deploy (regla 2): la migración v10 solo agrega columnas y tablas.
+5. Cuando todo esté bien, cambiar a las llaves `sk_live_` y su webhook.
 
-**Técnico**:
-
-- Migración nueva: tabla `purchases` (`id`, `user_id`, `provider`, `ref` UNIQUE, `product`, `amount`,
-  `currency`, `status`, `created_at`) y `users.plus_until`. Con su prueba de que ningún reloj cambia.
-- El tiempo o el Plus se acreditan **solo por un webhook con firma verificada**, nunca por la redirección
-  del navegador. Idempotente por `ref`: un webhook repetido no acredita dos veces.
-- Reembolso o contracargo: descontar lo acreditado y cancelar el Plus.
-- Historial: categorías de sistema nuevas en `public/economy.js` (p. ej. `compra`, `revivir`).
-- CSP: con redirección al checkout no hay que abrirla; si se usa un overlay (Lemon.js/Paddle.js), ajustar
-  `script-src` y `frame-src` en `server/index.js`.
-- Primero en **modo de prueba** (claves de prueba en las Variables de Railway).
-- Pruebas: webhook duplicado, firma inválida (400), reembolso que descuenta, Revivir solo en fase `dead`,
-  Plus vencido que vuelve al límite.
+**Ojo**: verificar que la cuenta de Stripe del dueño pueda cobrar desde su país (Stripe no abre cuentas de
+vendedores en Colombia; las opciones son una empresa en un país soportado, p. ej. con Stripe Atlas).
 
 ### 3. Idiomas: lo que falta
 
@@ -149,10 +149,9 @@ de `public/i18n.js` y se usa con `T('clave')`. `test/i18n.test.js` falla si falt
 
 ## Decisiones pendientes del dueño
 
-- Procesador de pagos: Lemon Squeezy o Paddle vs. Stripe Atlas.
-- Precios de Revivir, Plus y paquetes; ¿USD único o por país?
-- Revivir: ¿con cuánto tiempo?
-- ¿Se puede comprar tiempo para uno mismo (con tope) o no?
+- ~~Procesador de pagos~~: Stripe (decidido el 2026-11-15). Falta confirmar el país de la cuenta.
+- Precios: los de `PRODUCTS` son una propuesta (Plus 2,99/mes, Revivir 0,99, +1 día 0,99, Regalo 3,99). ¿USD único o por país?
+- Límites propuestos: dinero 7 días/semana en tu palabra y 30 para todos; juicio con 3 acusadores, 3 votos de quórum y 2/3 para culpable.
 - Dominio definitivo.
 
 ## Mercado (investigado el 2026-11-13)
