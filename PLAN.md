@@ -10,7 +10,7 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
 (SMMLV 2026 $1.750.905 / 30 = $58.364).
 
 - **Stack**: Node 24 sin framework, SQLite integrado (`node:sqlite`) con migraciones versionadas
-  (`MIGRATIONS` en `server/store.js`, hoy v1–v10), `web-push` y el SDK de Anthropic. Frontend vanilla sin
+  (`MIGRATIONS` en `server/store.js`, hoy v1–v11), `web-push` y el SDK de Anthropic. Frontend vanilla sin
   build en `public/`. Detalle en `README.md`.
 - **Deploy**: push a `main` → Railway despliega solo. Volumen en `/data`. Producción:
   `tiempo-production-79dc57d3.up.railway.app`.
@@ -32,7 +32,7 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
     de la app (encabezado `X-Lang`, columna `users.lang`). La economía sigue en pesos colombianos.
   - **En la rama `pagos-ranking` (sin publicar en `main`)**: pagos con Stripe, ranking con ligas y perfiles
     públicos, juicios del jurado, límites de dinero con confianza del Guardián y un Guardián que exige que el día
-    sea humanamente posible. Detalle en la tarea 2 y en el `README.md`. Migración v10 (solo agrega).
+    sea humanamente posible. Detalle en la tarea 2 y en el `README.md`. Migraciones v10 y v11 (solo agregan).
 
 ## Reglas que no se rompen
 
@@ -112,7 +112,16 @@ jugadores contra quien sea sospechosamente rico en tiempo.
   ingresos de 30 días). Plus usa `claude-sonnet-5-5` con `fallbacks: 'default'`; los demás, Haiku 5.5.
 - **Ranking** (`server/store-social.js`): por elección y con nombre; tablas *semana* y *tiempo*; ligas; perfil
   público con de dónde sale el tiempo y las actividades de 30 días.
-- **Juicios**: reglas en la cabecera de `store-social.js` (`TRIAL`). Avisos push al abrirse y al cerrarse.
+- **Juicios de 2 días** (reglas en la cabecera de `store-social.js`, `TRIAL`): día 1 citación pública con lo que
+  está en juego y defensa obligatoria con pruebas; día 2 veredicto secreto (solo se ve cuántos votaron). Culpable:
+  lo en juego se reparte entre quienes votaron culpable. Inocente: conserva lo en disputa y gana 1 día, igual que
+  quienes votaron inocente. Potestad para citar por **tiempo vivido de verdad** (15/30/90 días = 1/2/3). Un voto
+  por persona al día. **El Guardián también cita** (campo `summon` del veredicto), solo a quien está en el ranking.
+- **Perfil y moneda** (pedido del 2026-11-15): país obligatorio al registrarse, "¿a qué te dedicas?" opcional (lo
+  revisa el Guardián y lo usa de contexto), moneda COP o USD (por dentro todo en pesos; `USD_COP`).
+- **Faltas por contenido sexual** en todo lo que se sube: 1 día, 1 semana, 1 mes, 3 meses, 1 año; nunca se borran.
+- Interpretación de Claude, a confirmar con el dueño: al absuelto **no** se le duplica lo que estaba en disputa (lo
+  conserva y gana 1 día): duplicarlo invitaba a que amigos se citaran entre sí para ganar.
 
 **Para publicarlo** (en este orden):
 
