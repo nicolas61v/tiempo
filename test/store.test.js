@@ -566,6 +566,114 @@ test('idioma: avisos push, recordatorios y Guardián en el idioma de cada person
   assert.match(systemFor(undefined), /en inglés \(English\)/);
 });
 
+/* ───────── dinero: límites y confianza ───────── */
+
+test('dinero en tu palabra: hasta 7 días de vida por semana; para más, el Guardián con prueba', () => {
+  const { store, id, advance } = setup();
+  add(store, id, 'ingreso', 500_000); // 5 días
+  add(store, id, 'inversion', 400_000); // 2 días (la inversión vale la mitad)
+  assert.deepEqual(store.state(id).money, { used: 7 * 86_400, word: 7 * 86_400, cap: 30 * 86_400, verified: false, windowDays: 7 });
+  const e = (() => {
+    try {
+      add(store, id, 'ingreso', 1_000);
+    } catch (err) {
+      return err;
+    }
+  })();
+  assert.equal(e.code, 'money_word');
+  assert.match(e.text('es'), /Guardián.*prueba del pago/);
+  assert.match(e.text('en'), /proof of payment/);
+  add(store, id, 'consumo', 100_000); // los gastos no tienen tope
+  advance(7 * DAY + 1000); // la ventana es de 7 días
+  assert.equal(store.state(id).money.used, 0);
+  add(store, id, 'ingreso', 100_000);
+});
+
+test('el Guardián: sin prueba solo lo que entra en tu palabra; con prueba hasta el tope; un ingreso grande probado da confianza', () => {
+  const { store, id } = setup();
+  add(store, id, 'ingreso', 600_000); // 6 de 7 días en su palabra
+  const a = store.openDay(id, { text: 'me gané 3 millones' }).id;
+  store.saveVerdict(a, verdict({ ...item('ingreso', 3_000_000), proof: true })); // dice que hay prueba, pero no hay fotos
+  const capped = store.publicDay(id, a).turns[1].items[0];
+  assert.deepEqual([capped.proof, capped.amount, capped.capped, capped.limit], [false, 100_000, true, 'proof']); // solo el día que le cabe
+  store.discardDay(id, a);
+
+  const b = store.openDay(id, { text: 'aquí el comprobante', images: [PHOTO] }).id;
+  store.saveVerdict(b, verdict({ ...item('ingreso', 3_000_000), proof: true }));
+  const proved = store.publicDay(id, b).turns[1].items[0];
+  assert.deepEqual([proved.proof, proved.amount, proved.limit], [true, 2_400_000, 'cap']); // hasta 30 días por semana, para todos
+  const r = store.acceptDay(id, b);
+  assert.equal(r.trusted, true);
+  assert.equal(r.state.ledger[0].status, 'verificado');
+  assert.deepEqual([r.state.money.verified, r.state.money.word], [true, 30 * 86_400]); // ya le cree hasta el tope
+  assert.throws(() => add(store, id, 'ingreso', 1_000), { code: 'money_cap' }); // pero el tope es el tope
+});
+
+test('un día humano: estudio + ejercicio + proyecto no pasan de 16 h en 24 h', () => {
+  const { store, id, advance } = setup();
+  const a = store.openDay(id, { text: 'estudié 8 h, proyecto 10 h y gym 2 h', images: [PHOTO] }).id;
+  store.saveVerdict(a, verdict(item('aprendizaje', 8), item('proyecto', 10), item('salud', 2)));
+  const items = store.publicDay(id, a).turns[1].items;
+  assert.deepEqual(items.map((x) => [x.amount, x.capped]), [[8, false], [8, true], [0, true]]);
+  store.acceptDay(id, a);
+  const b = store.openDay(id, { text: 'y 1 h más de estudio' }).id;
+  store.saveVerdict(b, verdict(item('aprendizaje', 1)));
+  assert.equal(store.publicDay(id, b).net, 0); // ya no le caben horas hoy
+  advance(DAY + 1000);
+  const c = store.openDay(id, { text: 'mañana: 1 h de estudio' }).id;
+  store.saveVerdict(c, verdict(item('aprendizaje', 1)));
+  assert.equal(store.publicDay(id, c).net, 2 * 3600);
+});
+
+test('el Guardián recibe lo que ya contaste, tu límite de dinero y si tus ingresos están verificados', () => {
+  const { store, id } = setup();
+  add(store, id, 'ingreso', 250_000, 'Venta');
+  const a = store.openDay(id, { text: 'gym', images: [PHOTO] }).id;
+  store.saveVerdict(a, verdict(item('salud', 1.5), item('proyecto', 3)));
+  store.acceptDay(id, a);
+  const input = store.judgeInput(id, store.openDay(id, { text: 'corrí 100 km y aprendí 10 cálculos' }).id);
+  assert.deepEqual(input.context.hours, { aprendizaje: 0, salud: 1.5, proyecto: 3 });
+  assert.equal(input.context.wordLeft, 450_000); // 4,5 días de $100.000
+  assert.equal(input.context.capLeft, 2_750_000);
+  assert.deepEqual([input.context.verified, input.context.income30, input.context.incomeMax30], [false, 250_000, 250_000]);
+  assert.equal(input.maxReplies, 2);
+
+  const text = buildContent(input).at(-1).text;
+  assert.match(text, /Datos del servidor sobre esta persona/);
+  assert.match(text, /salud 1\.5 h \(máximo 2\).*En total 4\.5 h de 16/s);
+  assert.match(text, /en su palabra aún le caben \$\s?450\.000/);
+  assert.match(text, /verificados por el Guardián: no/);
+  assert.ok(text.indexOf('Datos del servidor') < text.indexOf('"""'), 'los datos del servidor van antes de lo que cuenta la persona');
+  const sys = systemFor('en', { usdCop: 4100 });
+  assert.match(sys, /1 USD = 4\.100 COP/);
+  assert.match(sys, /humanamente posible/);
+  assert.match(sys, /aprendí 10 cálculos/);
+  assert.match(sys, /necesita_prueba.*captura del pago/s);
+});
+
+test('migración v10: pagos, ranking y juicios llegan sin tocar ningún reloj', () => {
+  const dir = tmpDir();
+  const raw = new DatabaseSync(path.join(dir, 'tiempo.db'));
+  for (const sql of MIGRATIONS.slice(0, 9)) raw.exec(sql); // la base como estaba en v9
+  raw.exec('PRAGMA user_version = 9');
+  const token = 'tk_prima_00000000000000000000';
+  const expires = Date.UTC(2026, 10, 25, 8, 9, 10);
+  raw
+    .prepare('INSERT INTO users (id, token_hash, created_at, life_no, born_at, expires_at, nickname, lang) VALUES (?, ?, 1, 2, 1, ?, ?, ?)')
+    .run('u1', createHash('sha256').update(token).digest('base64url'), expires, 'Lu', 'es');
+  raw.prepare(`INSERT INTO ledger (user_id, life_no, at, seconds, note, category, amount, status) VALUES ('u1', 2, 5, 3600, 'Venta', 'ingreso', 4000, 'declarado')`).run();
+  raw.close();
+
+  const store = openStore({ dir, minWage: WAGE });
+  const s = store.state(store.auth(token).id);
+  assert.equal(s.expiresAt, expires);
+  assert.equal(s.lifeNo, 2);
+  assert.deepEqual(s.ledger.map((t) => [t.note, t.seconds]), [['Venta', 3600]]);
+  assert.deepEqual([s.ranked, s.publicId, s.plus.active, s.money.verified, s.trial, s.jury], [false, '', false, false, null, 0]);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('el reloj parte en años, meses, semanas y días', () => {
   assert.deepEqual(split(7 * DAY), { y: 0, mo: 0, w: 1, d: 0, h: 0, m: 0, s: 0 });
   assert.deepEqual(split(7 * DAY - 1000), { y: 0, mo: 0, w: 0, d: 6, h: 23, m: 59, s: 59 });

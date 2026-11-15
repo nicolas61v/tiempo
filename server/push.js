@@ -32,6 +32,35 @@ const REMINDERS = {
 };
 export const reminderFor = (hour, lang) => (REMINDERS[lang] || REMINDERS.en).find((r) => hour < r.until);
 
+// Juicios del jurado: al abrirse (al acusado) y al cerrarse (el veredicto).
+const TRIALS = {
+  es: {
+    open: { title: 'Te llevaron a juicio', body: 'Otros jugadores dudan de tu tiempo. Tienes 24 h para defenderte en Ranking → Juicios.' },
+    culpable: { title: 'El jurado te declaró culpable', body: 'Pierdes lo ganado sin prueba esa semana y sales del ranking por 30 días.' },
+    inocente: { title: 'Absuelto', body: 'El jurado te declaró inocente. Nadie puede juzgarte otra vez en 14 días.' },
+    sin_quorum: { title: 'Juicio cerrado', body: 'No votaron suficientes jurados: quedas libre.' },
+  },
+  en: {
+    open: { title: "You've been put on trial", body: 'Other players doubt your time. You have 24 h to defend yourself in Ranking → Trials.' },
+    culpable: { title: 'The jury found you guilty', body: "You lose what you earned without proof that week and you're out of the ranking for 30 days." },
+    inocente: { title: 'Acquitted', body: 'The jury found you innocent. Nobody can try you again for 14 days.' },
+    sin_quorum: { title: 'Trial closed', body: "Not enough jurors voted: you're free." },
+  },
+};
+export const trialFor = (kind, lang) => (TRIALS[lang] || TRIALS.en)[kind];
+
+/** A quien regaló: su tiempo (o su regalo comprado) llegó. */
+export function deliveredFor(lang, { name, dur, gift }) {
+  if (lang === 'es') {
+    return gift
+      ? { title: 'Regalo entregado', body: `${name || 'Alguien'} recibió tu regalo de ${dur}.` }
+      : { title: 'Tiempo entregado', body: `${name || 'Alguien'} recibió ${dur} de tu tiempo.` };
+  }
+  return gift
+    ? { title: 'Gift delivered', body: `${name || 'Someone'} received your ${dur} gift.` }
+    : { title: 'Time delivered', body: `${name || 'Someone'} received ${dur} of your time.` };
+}
+
 const SWEEP_MS = 15_000;
 
 /**

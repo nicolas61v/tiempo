@@ -2,12 +2,29 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CATEGORIES, lifeSeconds, catText } from '../public/economy.js';
+import {
+  CATEGORIES, lifeSeconds, catText, dayValue, leagueOf, MONEY, MONEY_CATS, HOUR_CATS, HOURS_PER_DAY,
+} from '../public/economy.js';
+import { payStore } from './store-pay.js';
+import { socialStore } from './store-social.js';
 
 /** Umbrales de alerta en segundos: 24 h, 1 h, 10 min y el final. */
 export const ALERTS = [86_400, 3_600, 600, 0];
 export const VERDICTS = ['aprobado', 'rechazado', 'necesita_prueba', 'no_cuenta'];
 export const MAX_REPLIES = 2;
+/** Tiempo Plus (suscripción): más charlas y réplicas, un Guardián más fino y un Revivir gratis al mes. Nunca da tiempo. */
+export const PLUS = { daysPerDay: 15, replies: 3, reviveEvery: 30 * 86_400_000 };
+const DAY_S = 86_400;
+const DAY_MS = DAY_S * 1000;
+/** Lista SQL de categorías (son claves fijas de economy.js, nunca texto de la gente). */
+export const sqlList = (keys) => keys.map((k) => `'${k}'`).join(', ');
+const BOUGHT_CATS = Object.keys(CATEGORIES).filter((k) => CATEGORIES[k].bought);
+/** "3,5 días" / "3.5 days": para mensajes de error del servidor. */
+function daysText(seconds, lang) {
+  const n = Math.round((seconds / DAY_S) * 10) / 10;
+  const s = lang === 'en' ? String(n) : String(n).replace('.', ',');
+  return `${s} ${lang === 'en' ? (n === 1 ? 'day' : 'days') : n === 1 ? 'día' : 'días'}`;
+}
 /** Recordatorio de contarle el día al Guardián: cada cuánto (segundos) se puede elegir; 0 = nunca. */
 export const REMIND_OPTIONS = [0, 21_600, 43_200, 86_400];
 const QUIET_FROM = 22; // de 22:00 a 8:00, en la hora de la persona, no se recuerda nada
@@ -229,6 +246,90 @@ export const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT '';  -- '' = sin elegir (inglés)
   `,
+  // v10 · pagos (Stripe), Tiempo Plus, ranking por elección, confianza en los ingresos y juicios del jurado.
+  // Solo agrega tablas y columnas con valores por defecto: no toca relojes.
+  `
+  CREATE TABLE IF NOT EXISTS purchases (
+    id           INTEGER PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    provider     TEXT NOT NULL,
+    ref          TEXT NOT NULL UNIQUE,            -- id del pago en el proveedor: un webhook repetido no acredita dos veces
+    product      TEXT NOT NULL,                   -- plus · dia · regalo · revivir
+    amount       INTEGER NOT NULL DEFAULT 0,      -- en centavos
+    currency     TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'pagado',  -- pagado · reembolsado
+    payment_ref  TEXT NOT NULL DEFAULT '',        -- payment_intent: para reembolsos y contracargos
+    life_no      INTEGER,
+    seconds      INTEGER NOT NULL DEFAULT 0,      -- tiempo acreditado (se descuenta si hay reembolso)
+    ledger_id    INTEGER,
+    created_at   INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS purchases_user ON purchases (user_id, product, created_at);
+  CREATE INDEX IF NOT EXISTS purchases_payment ON purchases (payment_ref);
+
+  CREATE TABLE IF NOT EXISTS gifts (
+    code         TEXT PRIMARY KEY,
+    purchase_id  INTEGER NOT NULL REFERENCES purchases (id) ON DELETE CASCADE,
+    from_user    TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    seconds      INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pendiente', -- pendiente · entregado · anulado
+    to_user      TEXT,
+    done_at      INTEGER,
+    ledger_id    INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS gifts_from ON gifts (from_user, created_at);
+  CREATE INDEX IF NOT EXISTS gifts_to ON gifts (to_user, done_at);
+
+  ALTER TABLE users ADD COLUMN plus_until INTEGER NOT NULL DEFAULT 0;      -- Plus activo hasta (ms)
+  ALTER TABLE users ADD COLUMN plus_sub TEXT NOT NULL DEFAULT '';          -- id de la suscripción en el proveedor
+  ALTER TABLE users ADD COLUMN plus_renews INTEGER NOT NULL DEFAULT 0;     -- 1 = se renueva sola
+  ALTER TABLE users ADD COLUMN plus_revive_at INTEGER NOT NULL DEFAULT 0;  -- último Revivir gratis de Plus
+  ALTER TABLE users ADD COLUMN ranked INTEGER NOT NULL DEFAULT 0;          -- 1 = eligió aparecer en el ranking
+  ALTER TABLE users ADD COLUMN public_id TEXT NOT NULL DEFAULT '';         -- identificador público del ranking (nunca la llave)
+  ALTER TABLE users ADD COLUMN income_trust INTEGER NOT NULL DEFAULT 0;    -- 1 = el Guardián verificó un ingreso grande con prueba
+  ALTER TABLE users ADD COLUMN banned_until INTEGER NOT NULL DEFAULT 0;    -- fuera del ranking por un juicio
+  CREATE INDEX IF NOT EXISTS users_plus_sub ON users (plus_sub);
+  CREATE INDEX IF NOT EXISTS users_ranked ON users (ranked);
+  CREATE UNIQUE INDEX IF NOT EXISTS users_public ON users (public_id) WHERE public_id <> '';
+
+  CREATE TABLE IF NOT EXISTS trials (
+    id             INTEGER PRIMARY KEY,
+    user_id        TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,  -- a quién se juzga
+    opened_at      INTEGER NOT NULL,
+    defense_until  INTEGER NOT NULL,
+    vote_until     INTEGER NOT NULL,
+    defense        TEXT NOT NULL DEFAULT '',
+    defended_at    INTEGER,
+    status         TEXT NOT NULL DEFAULT 'abierto',  -- abierto · culpable · inocente · sin_quorum
+    closed_at      INTEGER,
+    guilty         INTEGER NOT NULL DEFAULT 0,
+    innocent       INTEGER NOT NULL DEFAULT 0,
+    penalty        INTEGER NOT NULL DEFAULT 0       -- segundos descontados si salió culpable
+  );
+  CREATE INDEX IF NOT EXISTS trials_user ON trials (user_id, id);
+  CREATE INDEX IF NOT EXISTS trials_status ON trials (status, vote_until);
+
+  CREATE TABLE IF NOT EXISTS accusations (
+    id        INTEGER PRIMARY KEY,
+    target    TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    accuser   TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    reason    TEXT NOT NULL,          -- ingresos · imposible · cuentas · otro
+    text      TEXT NOT NULL DEFAULT '',
+    at        INTEGER NOT NULL,
+    trial_id  INTEGER                 -- se asigna al abrir el juicio
+  );
+  CREATE INDEX IF NOT EXISTS accusations_target ON accusations (target, at);
+  CREATE INDEX IF NOT EXISTS accusations_accuser ON accusations (accuser, at);
+
+  CREATE TABLE IF NOT EXISTS votes (
+    trial_id  INTEGER NOT NULL REFERENCES trials (id) ON DELETE CASCADE,
+    user_id   TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    vote      TEXT NOT NULL,          -- culpable · inocente
+    at        INTEGER NOT NULL,
+    PRIMARY KEY (trial_id, user_id)
+  );
+  `,
 ];
 
 /** Identificador anónimo que genera la app en cada teléfono. Si no tiene la forma esperada, se ignora. */
@@ -323,7 +424,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
              (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'reinicio') AS reinicios,
              (SELECT COUNT(*) FROM lives l WHERE l.user_id = u.id AND l.reason = 'muerte')   AS muertes
       FROM users u ORDER BY u.created_at DESC`),
-    setNick: st('UPDATE users SET nickname = ? WHERE id = ?'),
+    // sin nombre no se aparece en el ranking: borrarlo también te saca
+    setNick: st(`UPDATE users SET nickname = ?1, ranked = CASE WHEN ?1 = '' THEN 0 ELSE ranked END WHERE id = ?2`),
     setLang: st('UPDATE users SET lang = ? WHERE id = ?'),
     setToken: st('UPDATE users SET token_hash = ? WHERE id = ?'),
     byHash: st('SELECT * FROM users WHERE token_hash = ?'),
@@ -388,6 +490,20 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     setTz: st('UPDATE users SET tz = ? WHERE id = ?'),
     getMeta: st('SELECT value FROM meta WHERE key = ?'),
     setMeta: st('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value'),
+    // dinero ganado (en segundos de vida) en la ventana de los límites
+    moneyUsed: st(`SELECT COALESCE(SUM(seconds), 0) AS s FROM ledger
+                   WHERE user_id = ? AND at > ? AND seconds > 0 AND category IN (${sqlList(MONEY_CATS)})`),
+    incomeStats: st(`SELECT COALESCE(SUM(amount), 0) AS total, COALESCE(MAX(amount), 0) AS biggest,
+                            COUNT(DISTINCT at / 86400000) AS days
+                     FROM ledger WHERE user_id = ? AND category = 'ingreso' AND at > ?`),
+    boughtLife: st(`SELECT COALESCE(SUM(seconds), 0) AS s FROM ledger
+                    WHERE user_id = ? AND life_no = ? AND category IN (${sqlList(BOUGHT_CATS)})`),
+    setTrust: st('UPDATE users SET income_trust = ? WHERE id = ?'),
+    giftGet: st('SELECT * FROM gifts WHERE code = ?'),
+    adminSales: st(`SELECT product, COUNT(*) AS n, COALESCE(SUM(amount), 0) AS cents FROM purchases
+                    WHERE status = 'pagado' GROUP BY product`),
+    adminTrials: st('SELECT status, COUNT(*) AS n FROM trials GROUP BY status'),
+    adminRanked: st('SELECT COUNT(*) AS n FROM users WHERE ranked = 1'),
   };
 
   // Secreto propio de esta base para la huella de red: sin él, la huella no se puede revertir a la IP.
@@ -420,25 +536,46 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     return u;
   }
 
+  // Los módulos de pagos y de ranking/juicios se enganchan aquí (se definen al final de openStore).
+  const hooks = {};
+
+  const isPlus = (u, t) => u.plus_until > t;
+  const perDay = (u, t) => (isPlus(u, t) ? PLUS.daysPerDay : DAYS_PER_DAY);
+  const repliesOf = (u, t) => (isPlus(u, t) ? PLUS.replies : MAX_REPLIES);
+
   /** Charlas con el Guardián: cuántas usó hoy (fecha en su zona) y cuándo se renuevan. */
   function dayQuota(u, t) {
     const from = startOfLocalDay(t, u.tz);
     const used = q.daysSince.get(u.id, from).n;
     // Un día dura entre 23 y 25 h: 30 h después de esta medianoche siempre es mañana.
-    return { used, left: Math.max(0, DAYS_PER_DAY - used), resetAt: startOfLocalDay(from + 30 * 3_600_000, u.tz) };
+    return { used, left: Math.max(0, perDay(u, t) - used), resetAt: startOfLocalDay(from + 30 * 3_600_000, u.tz) };
+  }
+
+  /**
+   * Cuánto ha ganado por dinero (segundos de vida) en la ventana semanal y cuánto le cabe:
+   * word = en su palabra (sube al tope cuando el Guardián verificó un ingreso grande), cap = tope para todos.
+   */
+  function moneyState(u, t) {
+    const used = q.moneyUsed.get(u.id, t - MONEY.windowDays * DAY_MS).s;
+    const cap = MONEY.capDays * DAY_S;
+    return { used, word: u.income_trust ? cap : MONEY.wordDays * DAY_S, cap, verified: Boolean(u.income_trust) };
   }
 
   function snapshot(u) {
     const totals = q.totals.get(u.id, u.life_no);
     const t = now();
     const quota = dayQuota(u, t);
+    const money = moneyState(u, t);
+    const bought = q.boughtLife.get(u.id, u.life_no).s;
+    const remaining = Math.max(0, Math.floor((u.expires_at - t) / 1000));
     return {
       now: t,
       nickname: u.nickname,
       remindEvery: u.remind_every,
-      daysPerDay: DAYS_PER_DAY,
+      daysPerDay: perDay(u, t),
       daysLeft: quota.left,
       daysResetAt: quota.resetAt,
+      maxReplies: repliesOf(u, t),
       lifeNo: u.life_no,
       bornAt: u.born_at,
       expiresAt: u.expires_at,
@@ -447,6 +584,20 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       spent: totals.spent,
       record: q.record.get(u.id).ms ?? 0,
       ledger: q.ledger.all(u.id, u.life_no).map((r) => ({ ...r })),
+      plus: {
+        active: isPlus(u, t),
+        until: u.plus_until,
+        renews: Boolean(u.plus_renews),
+        freeRevive: isPlus(u, t) && t - u.plus_revive_at >= PLUS.reviveEvery,
+      },
+      money: { ...money, windowDays: MONEY.windowDays },
+      ranked: Boolean(u.ranked),
+      publicId: u.public_id,
+      bannedUntil: u.banned_until > t ? u.banned_until : 0,
+      // la liga se mide con el tiempo que te queda sin contar lo comprado
+      league: leagueOf(Math.max(0, remaining - bought)),
+      trial: hooks.myTrial?.(u, t) ?? null,
+      jury: hooks.juryCount?.(u, t) ?? 0,
     };
   }
 
@@ -492,8 +643,11 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     q.daySave.run(JSON.stringify(day.turns), JSON.stringify(day.images), day.verdict && JSON.stringify(day.verdict), day.rounds, day.id);
   }
 
-  /** Lo que la IA devolvió, saneado: nunca confiamos en su forma ni en sus números. */
-  function cleanVerdict(v) {
+  /**
+   * Lo que la IA devolvió, saneado: nunca confiamos en su forma ni en sus números.
+   * proof (una foto respalda el ítem) solo vale si en la conversación hay fotos de verdad.
+   */
+  function cleanVerdict(v, hasPhotos) {
     const items = (Array.isArray(v?.items) ? v.items : []).slice(0, 20).map((it) => {
       const c = CATEGORIES[it?.category];
       const valid = c && !c.system;
@@ -508,27 +662,68 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         amount,
         verdict: VERDICTS.includes(it?.verdict) && valid ? it.verdict : 'no_cuenta',
         reason: String(it?.reason ?? '').slice(0, 200),
+        proof: Boolean(valid && hasPhotos && it?.proof === true),
       };
     });
     return { message: String(v?.message ?? '').slice(0, 600), items };
   }
 
-  /** Tiempo de vida de cada ítem aprobado, respetando los topes de las últimas 24 h. */
+  /**
+   * Tiempo de vida de cada ítem aprobado, con los límites que hacen creíble un día:
+   * - horas: el tope de cada categoría y, entre todas, máximo HOURS_PER_DAY en 24 h;
+   * - dinero: en su palabra hasta money.word por semana; con prueba (foto), hasta money.cap, el tope para todos.
+   * capped + limit ('cap' | 'proof') dicen por qué se recortó: 'proof' = el resto entra si trae prueba.
+   */
   function priceItems(u, items, t) {
     const used = {};
+    const hoursUsed = (cat) => (used[cat] ??= q.usedSince.get(u.id, cat, t - CAP_WINDOW).used);
+    let hoursTotal = null;
+    const money = moneyState(u, t);
+    let moneyUsed = money.used;
     return items.map((it) => {
       const c = CATEGORIES[it.category];
       if (it.verdict !== 'aprobado' || !c || c.system || !(it.amount > 0)) return { ...it, seconds: 0 };
       let amount = it.amount;
       let capped = false;
-      if (c.cap) {
-        used[it.category] ??= q.usedSince.get(u.id, it.category, t - CAP_WINDOW).used;
-        const room = Math.max(0, c.cap - used[it.category]);
-        if (amount > room) (amount = room), (capped = true);
+      let limit = null;
+      if (c.unit === 'hours') {
+        hoursTotal ??= HOUR_CATS.reduce((s, k) => s + hoursUsed(k), 0);
+        const room = Math.max(0, Math.min((c.cap ?? HOURS_PER_DAY) - hoursUsed(it.category), HOURS_PER_DAY - hoursTotal));
+        if (amount > room) (amount = Math.floor(room * 100) / 100), (capped = true), (limit = 'cap');
         used[it.category] += amount;
+        hoursTotal += amount;
       }
-      return { ...it, amount, capped, seconds: lifeSeconds(it.category, amount, minWage) };
+      if (MONEY_CATS.includes(it.category)) {
+        const room = Math.max(0, (it.proof ? money.cap : money.word) - moneyUsed);
+        if (lifeSeconds(it.category, amount, minWage) > room) {
+          const perPeso = lifeSeconds(it.category, 1_000_000, minWage) / 1_000_000;
+          amount = Math.floor(room / perPeso);
+          capped = true;
+          limit = !it.proof && money.word < money.cap && moneyUsed < money.cap ? 'proof' : 'cap';
+        }
+        moneyUsed += lifeSeconds(it.category, amount, minWage);
+      }
+      return { ...it, amount, capped, limit, seconds: lifeSeconds(it.category, amount, minWage) };
     });
+  }
+
+  /** Lo que el Guardián debe saber de la persona para juzgar si su día es creíble (datos del servidor). */
+  function judgeContext(u, t) {
+    const hours = Object.fromEntries(HOUR_CATS.map((k) => [k, q.usedSince.get(u.id, k, t - CAP_WINDOW).used]));
+    const money = moneyState(u, t);
+    const pesos = (s) => Math.round((Math.max(0, s) / DAY_S) * dayValue(minWage));
+    const income = q.incomeStats.get(u.id, t - 30 * DAY_MS);
+    return {
+      hours,
+      caps: Object.fromEntries(HOUR_CATS.map((k) => [k, CATEGORIES[k].cap])),
+      hoursCap: HOURS_PER_DAY,
+      verified: money.verified,
+      wordLeft: pesos(money.word - money.used), // pesos de ingreso que aún entran en su palabra esta semana
+      capLeft: pesos(money.cap - money.used), // y con prueba
+      income30: income.total,
+      incomeMax30: income.biggest,
+      incomeDays30: income.days,
+    };
   }
 
   /* ───────── transferencias: utilidades ───────── */
@@ -545,7 +740,15 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     q.trSet.run('devuelto', null, t, tr.code);
   }
 
-  return {
+  /** Código de 6 letras libre entre transferencias y regalos (comparten el mismo link /r/CÓDIGO). */
+  function freeCode() {
+    let code;
+    do code = newCode();
+    while (q.trGet.get(code) || q.giftGet.get(code));
+    return code;
+  }
+
+  const api = {
     createUser({ nickname, deviceId, ip, lang } = {}) {
       const token = newToken();
       const id = randomUUID();
@@ -615,6 +818,26 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
             throw new AppError(409, 'cap', `Máximo ${c.cap} h de ${c.label.toLowerCase()} cada 24 horas`, `Up to ${c.cap} h of ${catText(c, 'en').label.toLowerCase()} every 24 hours`);
           }
         }
+        if (MONEY_CATS.includes(category)) {
+          const m = moneyState(u, t);
+          const left = Math.max(0, m.word - m.used);
+          if (m.used + seconds > m.word) {
+            if (m.word >= m.cap) {
+              throw new AppError(
+                409,
+                'money_cap',
+                `El dinero suma máximo ${MONEY.capDays} días de vida por semana, para todos. Esta semana te quedan ${daysText(left, 'es')}.`,
+                `Money adds at most ${MONEY.capDays} days of life per week, for everyone. You have ${daysText(left, 'en')} left this week.`,
+              );
+            }
+            throw new AppError(
+              409,
+              'money_word',
+              `En tu palabra, el dinero suma hasta ${MONEY.wordDays} días de vida por semana (te quedan ${daysText(left, 'es')}). Para más, cuéntaselo al Guardián en "Mi día" con una prueba del pago.`,
+              `On your word, money adds up to ${MONEY.wordDays} days of life per week (${daysText(left, 'en')} left). For more, tell the Guardian in "My day" with proof of payment.`,
+            );
+          }
+        }
         const expires = u.expires_at + seconds * 1000;
         if (expires <= t) throw new AppError(409, 'insufficient', 'No te alcanza el tiempo', "You don't have enough time");
         const r = q.addTx.run(u.id, u.life_no, t, seconds, note, category, amount, 'declarado');
@@ -667,11 +890,12 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       tz = cleanTz(tz);
       if (tz && tz !== u.tz) q.setTz.run(tz, id), (u = must(id));
       if (dayQuota(u, t).left <= 0) {
+        const n = perDay(u, t);
         throw new AppError(
           429,
           'days',
-          `Ya usaste tus ${DAYS_PER_DAY} charlas de hoy con el Guardián. Se renuevan a medianoche.`,
-          `You've used your ${DAYS_PER_DAY} chats with the Guardian for today. They reset at midnight.`,
+          `Ya usaste tus ${n} charlas de hoy con el Guardián. Se renuevan a medianoche.`,
+          `You've used your ${n} chats with the Guardian for today. They reset at midnight.`,
         );
       }
       text = typeof text === 'string' ? text.trim().slice(0, DAY_TEXT_MAX) : '';
@@ -685,7 +909,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     replyDay(id, dayId, { text, images } = {}) {
       const day = openDayOf(id, dayId);
       if (day.turns.at(-1)?.role !== 'judge') throw new AppError(409, 'waiting', 'Espera el veredicto', 'Wait for the verdict');
-      if (day.rounds >= MAX_REPLIES) throw new AppError(409, 'final', 'El Guardián ya tomó su decisión final', 'The Guardian has made its final decision');
+      if (day.rounds >= repliesOf(must(id), now())) throw new AppError(409, 'final', 'El Guardián ya tomó su decisión final', 'The Guardian has made its final decision');
       text = typeof text === 'string' ? text.trim().slice(0, DAY_TEXT_MAX) : '';
       const imgs = cleanImages(images, day.images.length);
       if (!text && !imgs.length) throw new AppError(400, 'text', 'Escribe tu réplica o sube una prueba', 'Write your reply or upload proof');
@@ -698,17 +922,22 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     /** Lo que se le manda a la IA: conversación + fotos, marcando las que ya se usaron como prueba. */
     judgeInput(id, dayId) {
       const day = openDayOf(id, dayId);
+      const u = must(id);
+      const t = now();
       return {
         turns: day.turns,
         images: day.images.map((im) => ({ ...im, reused: Boolean(q.hashUsed.get(im.hash)) })),
-        now: now(),
-        lang: must(id).lang || 'en',
+        now: t,
+        lang: u.lang || 'en',
+        plus: isPlus(u, t), // Plus: el Guardián más fino
+        maxReplies: repliesOf(u, t),
+        context: judgeContext(u, t),
       };
     },
 
     saveVerdict(dayId, verdict) {
       const day = loadDay(q.dayById.get(dayId));
-      const clean = cleanVerdict(verdict);
+      const clean = cleanVerdict(verdict, day.images.length > 0);
       day.turns.push({ role: 'judge', verdict: clean });
       day.verdict = clean;
       saveDay(day);
@@ -744,7 +973,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         id: day.id,
         status: day.status,
         rounds: day.rounds,
-        maxReplies: MAX_REPLIES,
+        maxReplies: repliesOf(u, t),
         turns,
         net: last ? last.items.reduce((s, it) => s + it.seconds, 0) : 0,
       };
@@ -760,7 +989,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         const items = priceItems(u, day.verdict.items, t).filter((it) => it.seconds);
         let expires = u.expires_at;
         for (const it of items) {
-          const status = CATEGORIES[it.category].proof === 'photo' ? 'verificado' : 'aprobado';
+          const status = CATEGORIES[it.category].proof === 'photo' || it.proof ? 'verificado' : 'aprobado';
           q.addTx.run(u.id, u.life_no, t, it.seconds, it.activity, it.category, it.amount, status);
           expires += it.seconds * 1000;
         }
@@ -768,7 +997,12 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         q.setExpiry.run(expires, alertBand(expires - t), u.id);
         for (const im of day.images) q.hashAdd.run(im.hash, u.id, t); // una foto prueba una sola vez
         q.dayClose.run('aceptado', day.id);
-        return { net: items.reduce((s, it) => s + it.seconds, 0), state: snapshot(must(id)) };
+        // El Guardián confirmó con prueba un ingreso grande (al menos lo que entra en su palabra en una semana):
+        // desde ahora le cree hasta el tope. Un jurado que lo declare culpable se lo quita.
+        const trusted =
+          !u.income_trust && items.some((it) => MONEY_CATS.includes(it.category) && it.proof && it.seconds >= MONEY.wordDays * DAY_S);
+        if (trusted) q.setTrust.run(1, u.id);
+        return { net: items.reduce((s, it) => s + it.seconds, 0), trusted, state: snapshot(must(id)) };
       });
     },
 
@@ -794,9 +1028,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         if (q.trPending.get(id).n >= MAX_PENDING) throw new AppError(429, 'pending', `Ya tienes ${MAX_PENDING} códigos activos`, `You already have ${MAX_PENDING} active codes`);
         const expires = u.expires_at - seconds * 1000;
         if (expires - t < KEEP_MS) throw new AppError(409, 'insufficient', 'No puedes regalar todo tu tiempo', "You can't give away all your time");
-        let code;
-        do code = newCode();
-        while (q.trGet.get(code));
+        const code = freeCode();
         const r = q.addTx.run(u.id, u.life_no, t, -seconds, `Código ${code}`, 'envio', seconds, 'enviado');
         q.trInsert.run(code, u.id, seconds, t, t + TRANSFER_TTL, Number(r.lastInsertRowid));
         q.setExpiry.run(expires, alertBand(expires - t), u.id);
@@ -811,6 +1043,12 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         const u = must(id);
         const t = now();
         const tr = q.trGet.get(code);
+        if (!tr) {
+          // ¿Es un regalo comprado? Usa el mismo código de 6 letras y el mismo link /r/CÓDIGO.
+          const gift = hooks.claimGift?.(u, code, t);
+          if (gift?.error) return gift;
+          if (gift) return { ...gift, state: snapshot(must(id)) };
+        }
         if (!tr || tr.status !== 'pendiente') return { error: new AppError(404, 'code', 'Código inválido o ya usado', 'Invalid or already used code') };
         if (tr.expires_at <= t) {
           refund(tr, t); // se guarda la devolución y luego se avisa del error
@@ -825,7 +1063,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         const expires = u.expires_at + tr.seconds * 1000;
         q.setExpiry.run(expires, alertBand(expires - t), u.id);
         q.trSet.run('entregado', u.id, t, code);
-        return { seconds: tr.seconds, fromUser: tr.from_user, fromName, toName: u.nickname, state: snapshot(must(id)) };
+        const fromLang = q.byId.get(tr.from_user)?.lang || 'en';
+        return { seconds: tr.seconds, fromUser: tr.from_user, fromName, fromLang, toName: u.nickname, state: snapshot(must(id)) };
       });
       if (result.error) throw result.error;
       return result;
@@ -936,6 +1175,9 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
           dispositivos: new Set(users.map((u) => u.device_id).filter(Boolean)).size,
           redes: new Set(users.map((u) => u.ip_hash).filter(Boolean)).size,
         },
+        ventas: q.adminSales.all().map((r) => ({ producto: r.product, cantidad: r.n, usd: r.cents / 100 })),
+        juicios: Object.fromEntries(q.adminTrials.all().map((r) => [r.status, r.n])),
+        enRanking: q.adminRanked.get().n,
         dispositivosConVariasCuentas: grouped('device_id'),
         redesConVariasCuentas: grouped('ip_hash'),
         relojes: users.slice(0, 500).map((u) => ({
@@ -960,4 +1202,8 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     backupFile,
     close: () => db.close(),
   };
+
+  // Pagos (Revivir, +1 día, regalos, Plus) y ranking con juicios: comparten la base y las utilidades de aquí.
+  const ctx = { st, q, tx, must, now, snapshot, hooks, freeCode, alertBand, AppError, isPlus, PLUS, minWage, initialSeconds };
+  return Object.assign(api, payStore(ctx), socialStore(ctx));
 }

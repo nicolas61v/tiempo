@@ -20,6 +20,13 @@ export const config = {
   minWage: Number(env.MIN_WAGE_MONTHLY) || 1_750_905,
   // Clave de la página /admin. Sin ella, el panel de administración queda apagado.
   adminToken: env.ADMIN_TOKEN || '',
+  // Pagos con Stripe: solo estas dos llaves (sk_test_… / whsec_…). Sin la primera, la tienda queda apagada.
+  stripe: {
+    secretKey: (env.STRIPE_SECRET_KEY || '').trim(),
+    webhookSecret: (env.STRIPE_WEBHOOK_SECRET || '').trim(),
+  },
+  // A dónde vuelve la gente después de pagar si el navegador no dice de dónde salió (normalmente sí lo dice).
+  publicUrl: (env.PUBLIC_URL || (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : '')).replace(/\/+$/, ''),
   onRailway: Boolean(env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_PROJECT_ID),
   hasVolume: Boolean(env.RAILWAY_VOLUME_MOUNT_PATH || env.DATA_DIR),
   vapid: {

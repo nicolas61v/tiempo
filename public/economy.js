@@ -36,7 +36,40 @@ export const CATEGORIES = {
   // ── Transferencias ──
   envio: { dir: -1, unit: 'seconds', rate: 1, system: true, label: 'Tiempo enviado', en: { label: 'Time sent' } },
   recibo: { dir: 1, unit: 'seconds', rate: 1, system: true, label: 'Tiempo recibido', en: { label: 'Time received' } },
+  // ── Pagos (bought: comprado con dinero real; nunca cuenta en el ranking) ──
+  compra: { dir: 1, unit: 'seconds', rate: 1, system: true, bought: true, label: 'Tiempo comprado', en: { label: 'Bought time' } },
+  revivir: { dir: 1, unit: 'seconds', rate: 1, system: true, bought: true, label: 'Revivir', en: { label: 'Revive' } },
+  regalo: { dir: 1, unit: 'seconds', rate: 1, system: true, bought: true, label: 'Regalo comprado', en: { label: 'Bought gift' } },
+  reembolso: { dir: -1, unit: 'seconds', rate: 1, system: true, bought: true, label: 'Reembolso', en: { label: 'Refund' } },
+  // ── Juicios (rank: la condena sí descuenta en el ranking) ──
+  juicio: { dir: -1, unit: 'seconds', rate: 1, system: true, rank: true, label: 'Condena del jurado', en: { label: 'Jury sentence' } },
 };
+
+/** Categorías que suman dinero (en tu palabra o con el Guardián) y las que se miden en horas. */
+export const MONEY_CATS = ['ingreso', 'inversion'];
+export const HOUR_CATS = ['aprendizaje', 'salud', 'proyecto'];
+
+/**
+ * Límites de lo que se gana por dinero, en días de vida por ventana de 7 días (el dinero llega a montones:
+ * un sueldo, una venta grande; por eso la ventana es semanal y no diaria).
+ * word: lo que entra en tu palabra mientras el Guardián no haya verificado tus ingresos.
+ * cap:  el tope para todos, verificado o no. Nadie gana más que esto por dinero.
+ */
+export const MONEY = { windowDays: 7, wordDays: 7, capDays: 30 };
+
+/** Horas despierto que caben en un día: la suma de estudio + ejercicio + proyecto nunca pasa de aquí en 24 h. */
+export const HOURS_PER_DAY = 16;
+
+/** Ligas del ranking según el tiempo que te queda (sin contar lo comprado). Nombres en i18n: league.<id>. */
+export const LEAGUES = [
+  { id: 'bronce', min: 0 },
+  { id: 'plata', min: 14 * 86_400 },
+  { id: 'oro', min: 30 * 86_400 },
+  { id: 'platino', min: 90 * 86_400 },
+  { id: 'diamante', min: 180 * 86_400 },
+  { id: 'inmortal', min: 365 * 86_400 },
+];
+export const leagueOf = (seconds) => LEAGUES.findLast((l) => seconds >= l.min).id;
 
 /** Nombre y pista de una categoría en el idioma pedido ('es' o 'en'). */
 export const catText = (c, lang) => ({ label: c.label, hint: c.hint, ...(lang === 'en' ? c.en : null) });
