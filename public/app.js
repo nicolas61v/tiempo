@@ -45,6 +45,11 @@ const regionNames = (() => {
   }
 })();
 const countryName = (c) => (c ? regionNames?.of(c) || c : '');
+// Windows no dibuja banderas: muestra las dos letras sueltas ("co"). Ahí, mejor sin bandera.
+const FLAGS = !/Windows/.test(navigator.userAgent);
+const flag = (c) => (FLAGS ? flagOf(c) : '');
+/** Los países de la mayoría de la gente de Tiempo, arriba de la lista (240 países son mucho para buscar). */
+const COMMON = ['CO', 'MX', 'US', 'ES', 'AR', 'PE', 'CL', 'EC', 'VE'];
 const num = new Intl.NumberFormat(LOCALE);
 const usd = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
 const priceOf = (product) => (PRICES[product] ? usd.format(PRICES[product] / 100) : '');
@@ -1372,8 +1377,8 @@ function rankRow(r, board) {
   b.type = 'button';
   b.dataset.person = r.id;
   const who = el('span', 'who');
-  const flag = flagOf(r.country);
-  who.append(el('span', 'name', `${flag ? `${flag} ` : ''}${r.you ? `${r.name} · ${T('you')}` : r.name}`));
+  const f = flag(r.country);
+  who.append(el('span', 'name', `${f ? `${f} ` : ''}${r.you ? `${r.name} · ${T('you')}` : r.name}`));
   if (r.bio) who.append(el('span', 'bio', r.bio)); // a qué se dedica
   const sub = el('span', 'sub');
   sub.append(el('span', `lg lg-${r.league}`, leagueName(r.league)), ...tags(r));
@@ -1551,7 +1556,7 @@ function renderProfile() {
 
   const country = $('#p-country');
   country.hidden = !p.country;
-  country.textContent = p.country ? `${flagOf(p.country)} ${countryName(p.country)}` : '';
+  country.textContent = p.country ? `${flag(p.country)} ${countryName(p.country)}`.trim() : '';
   // Citar a juicio (o sumarse a su citación): solo si se puede; si no, por qué (salvo en su propio perfil).
   $('#acc-stake').textContent = p.trial
     ? T('acc.joining', { n: p.trial.people, p: p.trial.points, need: p.trial.needed, x: fmtDur(p.stake, 2) })
@@ -1966,10 +1971,17 @@ function guessCountry() {
 
 function fillCountries(select, selected) {
   if (!select.options.length) {
-    const sorted = COUNTRIES.map((c) => [c, countryName(c)]).sort((a, b) => a[1].localeCompare(b[1], LANG));
+    const option = (c) => new Option(`${flag(c)} ${countryName(c)}`.trim(), c);
+    const group = (label, codes) => {
+      const g = document.createElement('optgroup');
+      g.label = label;
+      g.append(...codes.map(option));
+      return g;
+    };
+    const rest = COUNTRIES.filter((c) => !COMMON.includes(c)).sort((a, b) => countryName(a).localeCompare(countryName(b), LANG));
     const first = new Option(T('country.pick'), '');
     first.disabled = true;
-    select.append(first, ...sorted.map(([c, name]) => new Option(`${flagOf(c)} ${name}`, c)));
+    select.append(first, group(T('country.common'), COMMON), group(T('country.all'), rest));
   }
   select.value = selected || '';
 }

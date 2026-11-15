@@ -62,7 +62,7 @@ body[data-mood='low'] { --glow: var(--amber); }
 body[data-mood='critical'] { --glow: var(--red); }
 body[data-mood='dead'] { --glow: #8a2232; }
 
-button, input, textarea { font: inherit; color: inherit; }
+button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 :focus-visible { outline: 2px solid color-mix(in srgb, var(--glow) 70%, transparent); outline-offset: 3px; }
 
@@ -694,10 +694,20 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 .power { color: var(--ink); font-weight: 600; }
 
 /* registro y perfil: país */
-.country-field { appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; color: var(--ink); }
-.country-field:invalid { color: var(--faint); }
-select.field { background-color: var(--raise); }
-select.field option { background: var(--sheet); color: var(--ink); }
+/* selector (país): flecha propia, la fuente de la app y "…" si el nombre no cabe; nunca más ancho que su caja */
+select.field {
+  appearance: none; -webkit-appearance: none;
+  min-width: 0; max-width: 100%;
+  padding: 0 44px 0 16px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  background: var(--raise) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e8f0eb' stroke-opacity='.6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center / 18px 18px;
+  color: var(--ink);
+  cursor: pointer;
+}
+select.field option, select.field optgroup { background: var(--sheet); color: var(--ink); }
+/* en el registro va centrado, como el resto de campos (con espacio igual a los dos lados de la flecha) */
+select.country-field { padding: 0 44px; text-align: center; text-align-last: center; }
+select.country-field:invalid { color: var(--faint); }
 .intro-hint { max-width: 36ch; margin-top: -2px; color: var(--faint); }
 .trial-banner.soft { border-color: var(--line); background: var(--raise); font-weight: 500; }
 
