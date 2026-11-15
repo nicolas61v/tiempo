@@ -14,6 +14,8 @@
   <meta name="initial-seconds" content="__INITIAL__">
   <meta name="min-wage" content="__MIN_WAGE__">
   <meta name="days-per-day" content="__DAYS_PER_DAY__">
+  <meta name="payments" content="__PAYMENTS__">
+  <meta name="prices" content="__PRICES__">
   <title>Tiempo</title>
   <link rel="preload" href="/fonts/inter-latin-200-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="manifest" href="/manifest.webmanifest">
@@ -25,19 +27,32 @@
 <body data-phase="boot" data-mood="ok">
   <main class="app">
     <header class="top">
-      <button class="icon-btn" id="btn-history" type="button" aria-label="History" data-i18n-aria="a.history">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg>
-      </button>
+      <div class="top-side">
+        <button class="icon-btn" id="btn-history" type="button" aria-label="History" data-i18n-aria="a.history">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg>
+        </button>
+        <button class="icon-btn needs-life" id="btn-rank" type="button" aria-label="Ranking" data-i18n-aria="a.rank">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 4.5h9v4a4.5 4.5 0 0 1-9 0z"/><path d="M7.5 6H4.5v1.5a3 3 0 0 0 3 3M16.5 6h3v1.5a3 3 0 0 1-3 3M12 13v3.5M8.5 19.5h7M10 16.5h4"/></svg>
+          <span class="dot" id="rank-dot" hidden></span>
+        </button>
+      </div>
       <span class="life" id="life"></span>
-      <button class="icon-btn" id="btn-settings" type="button" aria-label="Settings" data-i18n-aria="a.settings">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
-      </button>
+      <div class="top-side">
+        <button class="icon-btn needs-life" id="btn-store" type="button" aria-label="Store" data-i18n-aria="a.store">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14l-1 11H6z"/><path d="M9 10.5V7a3 3 0 0 1 6 0v3.5"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-settings" type="button" aria-label="Settings" data-i18n-aria="a.settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
+        </button>
+      </div>
     </header>
 
     <section class="stage">
       <p class="status" id="status">Your clock</p>
       <div class="clock" id="clock" role="timer"></div>
       <p class="expiry" id="expiry"></p>
+      <button class="league" id="league" type="button" hidden><span class="league-dot" aria-hidden="true"></span><span id="league-text"></span></button>
+      <button class="trial-banner" id="trial-banner" type="button" hidden></button>
       <p class="gift" id="gift" hidden></p>
       <div class="recover" id="recover" hidden>
         <p data-i18n="recover.text">We couldn't find your clock on the server, but your key is still saved on this phone.</p>
@@ -65,6 +80,8 @@
     </footer>
     <footer class="dock dock-dead">
       <button class="btn btn-earn" id="btn-rebirth" type="button">Be reborn</button>
+      <button class="btn btn-spend" id="btn-revive" type="button" hidden></button>
+      <p class="row-s center revive-note" id="revive-note" hidden></p>
     </footer>
   </main>
 
@@ -93,6 +110,7 @@
         <input id="tx-money" inputmode="numeric" placeholder="0" autocomplete="off" enterkeyhint="done" aria-label="Amount in Colombian pesos" data-i18n-aria="a.pesos">
       </label>
       <div class="chips" id="tx-chips"></div>
+      <p class="row-s center money-limit" id="tx-limit" hidden></p>
       <div class="suggest" id="tx-suggest"></div>
       <input class="field" id="tx-note" maxlength="80" placeholder="What for? (optional)" data-i18n-ph="ph.what" autocomplete="off" enterkeyhint="done">
       <p class="preview" id="tx-preview"></p>
@@ -231,6 +249,10 @@
             <button type="button" role="radio" data-every="86400">24 h</button>
           </div>
         </div>
+        <div class="row needs-session">
+          <div><p class="row-t" data-i18n="rank.row">Show me in the ranking</p><p class="row-s" id="ranked-status"></p></div>
+          <button class="pill" id="btn-ranked" type="button"></button>
+        </div>
         <div class="row" id="row-install" hidden>
           <div><p class="row-t" data-i18n="install">Install</p><p class="row-s" id="install-hint"></p></div>
           <button class="pill" id="btn-install" type="button" data-i18n="install">Install</button>
@@ -280,6 +302,120 @@
       <button class="btn btn-spend" id="k-qr" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7 12h10"/></svg><span data-i18n="showQr">Show QR</span></button>
       <button class="btn btn-spend" id="k-copy" type="button">Copy key</button>
       <button class="btn btn-earn" id="k-done" type="button">I've saved it</button>
+    </div>
+  </dialog>
+
+  <!-- Ranking: quién va ganando más tiempo, y los juicios -->
+  <dialog class="sheet" id="sheet-rank" aria-labelledby="r-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="r-title" data-i18n="rank.title">Ranking</h2>
+      <div class="seg seg-3" id="rank-seg" role="tablist">
+        <button type="button" role="tab" data-board="semana" data-i18n="rank.week">This week</button>
+        <button type="button" role="tab" data-board="tiempo" data-i18n="rank.time">Most time</button>
+        <button type="button" role="tab" data-board="juicios"><span data-i18n="rank.trials">Trials</span> <span class="count" id="trials-count" hidden></span></button>
+      </div>
+      <div class="join" id="rank-join" hidden>
+        <p class="row-t" data-i18n="rank.joinTitle">Join the ranking</p>
+        <p class="row-s" data-i18n="rank.joinText">Your name, your league and what you do (the last 30 days) become visible to everyone in the ranking. If something doesn't add up, they can put you on trial.</p>
+        <input class="field" id="rank-name" maxlength="32" placeholder="Your name or nickname" data-i18n-ph="ph.nick" autocomplete="nickname" enterkeyhint="done" aria-label="Your name or nickname, up to 32 characters" data-i18n-aria="a.name" hidden>
+        <p class="row-s warn-text" id="rank-join-note"></p>
+        <button class="btn btn-earn" id="rank-join-btn" type="button" data-i18n="rank.join">Join</button>
+      </div>
+      <p class="row-s" id="rank-hint"></p>
+      <ol class="board" id="rank-list"></ol>
+      <p class="empty" id="rank-empty" hidden></p>
+      <p class="row-s privacy" data-i18n="rank.fine">Bought time and time received from others never count. Your league is the time you have left without what you bought.</p>
+    </div>
+  </dialog>
+
+  <!-- Perfil: qué hace cada persona y por qué vive tanto -->
+  <dialog class="sheet" id="sheet-profile" aria-labelledby="p-name">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <div class="p-head">
+        <div class="grow"><h2 class="sheet-title" id="p-name"></h2><p class="row-s" id="p-sub"></p></div>
+        <span class="league-badge" id="p-league"></span>
+      </div>
+      <div class="tags" id="p-badges"></div>
+      <div class="stats">
+        <div class="stat"><span class="stat-k" data-i18n="p.left">Left</span><span class="stat-v" id="p-left">0m</span></div>
+        <div class="stat"><span class="stat-k" data-i18n="p.week">This week</span><span class="stat-v" id="p-week">0m</span></div>
+        <div class="stat"><span class="stat-k" data-i18n="p.alive">Alive</span><span class="stat-v" id="p-alive">0m</span></div>
+      </div>
+      <h3 class="sub-title" data-i18n="p.why">Where their time comes from</h3>
+      <ul class="why" id="p-why"></ul>
+      <h3 class="sub-title" id="p-doing-title" data-i18n="p.doing">What they do (30 days)</h3>
+      <ul class="why" id="p-doing"></ul>
+      <h3 class="sub-title" data-i18n="p.recent">Latest</h3>
+      <ol class="ledger" id="p-recent"></ol>
+      <p class="empty" id="p-empty" hidden data-i18n="p.empty">Nothing in the last 30 days.</p>
+      <button class="link" id="p-accuse-open" type="button" hidden data-i18n="acc.open">Something doesn't add up? Request a trial</button>
+      <form class="accuse" id="p-accuse" hidden>
+        <p class="row-t" data-i18n="acc.title">Request a trial</p>
+        <p class="row-s" data-i18n="acc.text">It takes 3 players (or 1 if they earned 2 weeks of life in 7 days). They get 24 h to defend themselves and then a jury of players votes. It's anonymous.</p>
+        <div class="cats" id="acc-reasons" role="group" aria-label="Reason" data-i18n-aria="a.reason"></div>
+        <textarea class="field area" id="acc-text" rows="2" maxlength="280" placeholder="What doesn't add up? (optional)" data-i18n-ph="ph.accuse"></textarea>
+        <button class="btn btn-danger" id="acc-send" type="submit" disabled data-i18n="acc.send">Request trial</button>
+      </form>
+      <p class="row-s center" id="p-note" hidden></p>
+    </div>
+  </dialog>
+
+  <!-- Juicio: acusaciones, defensa, pruebas y voto del jurado -->
+  <dialog class="sheet" id="sheet-trial" aria-labelledby="t-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="t-title"></h2>
+      <p class="row-s" id="t-phase"></p>
+      <h3 class="sub-title" data-i18n="t.accusations">Accusations</h3>
+      <ul class="quotes" id="t-acc"></ul>
+      <h3 class="sub-title" data-i18n="t.defense">Defense</h3>
+      <p class="quote" id="t-defense"></p>
+      <form class="composer" id="t-defend" hidden>
+        <textarea class="field area" id="t-defend-text" rows="3" maxlength="600" placeholder="Explain where your time comes from. Jurors will read it before voting." data-i18n-ph="ph.defense"></textarea>
+        <button class="btn btn-earn" type="submit" data-i18n="t.defend">Send my defense</button>
+      </form>
+      <div class="evidence" id="t-evidence">
+        <h3 class="sub-title" data-i18n="t.evidence">Evidence: this life</h3>
+        <ul class="why" id="t-why"></ul>
+        <ol class="ledger" id="t-recent"></ol>
+        <button class="link" id="t-profile" type="button" data-i18n="t.profile">See full profile</button>
+      </div>
+      <p class="row-s center" id="t-note" hidden></p>
+      <div class="pair" id="t-vote" hidden>
+        <button class="btn btn-spend" id="t-innocent" type="button" data-i18n="t.inocente">Innocent</button>
+        <button class="btn btn-spend vote-guilty" id="t-guilty" type="button" data-i18n="t.culpable">Guilty</button>
+      </div>
+      <p class="row-s privacy" id="t-rules"></p>
+    </div>
+  </dialog>
+
+  <!-- Tienda: Plus, +1 día, regalos y Revivir -->
+  <dialog class="sheet" id="sheet-store" aria-labelledby="st-title">
+    <div class="sheet-body">
+      <div class="grip"></div>
+      <h2 class="sheet-title" id="st-title" data-i18n="store.title">Store</h2>
+      <p class="row-s note-warn" id="store-off" hidden data-i18n="store.off">Payments aren't active yet.</p>
+      <p class="row-s note-warn" id="store-test" hidden data-i18n="store.test">Test mode: pay with the card 4242 4242 4242 4242, any future date and any CVC. Nothing is really charged.</p>
+      <section class="plus-card" id="plus-card">
+        <div class="product-head"><p class="plus-name">Tiempo <b>Plus</b></p><p class="price" id="plus-price"></p></div>
+        <ul class="perks">
+          <li data-i18n="plus.p1">15 chats a day with the Guardian (instead of 7)</li>
+          <li data-i18n="plus.p2">3 replies per chat (instead of 2)</li>
+          <li data-i18n="plus.p3">A sharper Guardian</li>
+          <li data-i18n="plus.p4">1 free revive a month</li>
+          <li data-i18n="plus.p5">Plus badge in the ranking</li>
+        </ul>
+        <p class="row-s" data-i18n="plus.fair">Plus never gives you time: in the ranking everyone plays by the same rules.</p>
+        <p class="row-s plus-status" id="plus-status" hidden></p>
+        <button class="btn btn-earn" id="plus-btn" type="button">Get Plus</button>
+        <button class="link" id="plus-renew" type="button" hidden></button>
+      </section>
+      <div class="products" id="store-products"></div>
+      <h3 class="sub-title" id="gifts-title" hidden data-i18n="store.gifts">Your gifts</h3>
+      <ul class="gifts" id="store-gifts"></ul>
+      <p class="row-s privacy" data-i18n="store.fine">Secure payment with Stripe: we never see your card. What you buy never counts in the ranking. Prices in US dollars.</p>
     </div>
   </dialog>
 

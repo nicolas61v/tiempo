@@ -86,6 +86,12 @@ async function load(key) {
     card('muertes', t.muertes),
     card('teléfonos', t.dispositivos),
     card('redes', t.redes),
+    card('en el ranking', data.enRanking ?? 0),
+    card('juicios abiertos', data.juicios?.abierto ?? 0),
+    card('culpables', data.juicios?.culpable ?? 0),
+    card('absueltos', (data.juicios?.inocente ?? 0) + (data.juicios?.sin_quorum ?? 0)),
+    card('ventas (USD)', (data.ventas || []).reduce((s, v) => s + v.usd, 0).toFixed(2)),
+    ...(data.ventas || []).map((v) => card(`${v.producto} (${v.usd.toFixed(2)} USD)`, v.cantidad)),
   );
   $('#devices').replaceChildren(groupList(data.dispositivosConVariasCuentas, 'Ningún teléfono tiene más de una cuenta.'));
   $('#nets').replaceChildren(groupList(data.redesConVariasCuentas, 'Ninguna red tiene más de una cuenta.'));

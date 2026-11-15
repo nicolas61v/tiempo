@@ -71,15 +71,16 @@ self.addEventListener('push', (e) => {
     data = e.data?.json() ?? {};
   } catch {}
   const remind = data.kind === 'remind'; // recordatorio de "Mi día": no reemplaza un aviso del reloj
+  const trial = data.kind === 'trial'; // juicio del jurado: abre el juicio
   e.waitUntil(
     self.registration.showNotification(data.title || 'Tiempo', {
       body: data.body || '',
       icon: '/icons/icon-192.png',
       badge: '/icons/badge-96.png',
-      tag: remind ? 'recordatorio' : 'tiempo',
+      tag: remind ? 'recordatorio' : trial ? 'juicio' : 'tiempo',
       renotify: true,
       vibrate: data.band === 0 ? [300, 120, 300] : [120],
-      data: { url: remind ? '/#dia' : '/' },
+      data: { url: remind ? '/#dia' : trial ? '/#juicio' : '/' },
     }),
   );
 });
@@ -92,6 +93,7 @@ self.addEventListener('notificationclick', (e) => {
       const open = list.find((c) => 'focus' in c);
       if (!open) return self.clients.openWindow(url);
       if (url.endsWith('#dia')) open.postMessage({ open: 'day' }); // la app ya abierta salta a "Mi día"
+      if (url.endsWith('#juicio')) open.postMessage({ open: 'trial' }); // o al juicio
       return open.focus();
     }),
   );

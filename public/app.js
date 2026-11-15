@@ -1,5 +1,5 @@
 import { Clock } from './clock.js';
-import { CATEGORIES, lifeSeconds, dayValue, catText } from './economy.js';
+import { CATEGORIES, lifeSeconds, dayValue, catText, MONEY_CATS } from './economy.js';
 import { T, LANG, LOCALE, saveLang, translatePage } from './i18n.js';
 import qrcode from './vendor/qrcode.mjs';
 import { canScan, startScan } from './scan.js';
@@ -13,6 +13,12 @@ const MIN_WAGE = Number(meta('min-wage')) || 1_750_905;
 const DAYS_PER_DAY = Number(meta('days-per-day')) || 7; // charlas con el Guardián por fecha
 const DAY_VALUE = dayValue(MIN_WAGE);
 const VERSION = meta('app-version') || 'dev';
+const PAYMENTS = meta('payments') === '1'; // la tienda (Stripe) está configurada en el servidor
+// Precios en centavos de dólar: "plus=299;dia=99;…" (los define el servidor)
+const PRICES = Object.fromEntries(
+  (meta('prices') || '').split(';').map((kv) => kv.split('=')).filter(([k, v]) => k && Number(v)).map(([k, v]) => [k, Number(v)]),
+);
+const PLUS_DAYS = 15; // charlas por día con Plus (como en el servidor)
 // A mano solo entra lo que va "en tu palabra"; lo demás pasa por el Guardián.
 const ORDER = { earn: ['ingreso', 'inversion'], spend: ['consumo'] };
 const CHIPS = { money: [5_000, 20_000, 50_000, 100_000, 500_000, 1_000_000], hours: [0.25, 0.5, 1, 2, 4, 8] };
@@ -21,7 +27,10 @@ const SHARE_CHIPS = [300, 900, 3_600, 21_600, DAY, WEEK];
 // La economía es en pesos colombianos (1 día = salario mínimo de Colombia), en cualquier idioma.
 const cop = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'COP', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 });
 const num = new Intl.NumberFormat(LOCALE);
+const usd = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+const priceOf = (product) => (PRICES[product] ? usd.format(PRICES[product] / 100) : '');
 const cText = (c) => catText(c, LANG);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -70,6 +79,20 @@ function deviceId() {
 // Tocar el recordatorio de "Mi día" abre la app en /#dia: se va directo a contarle al Guardián.
 let dayOnLoad = location.hash === '#dia';
 if (dayOnLoad) history.replaceState(null, '', location.pathname);
+
+// Aviso de un juicio: abre la app en /#juicio.
+let trialOnLoad = location.hash === '#juicio';
+if (trialOnLoad) history.replaceState(null, '', location.pathname);
+
+// Vuelta del pago (Stripe): /?pago=ok&cs=… o /?pago=no. Lo comprado lo confirma el servidor, no esta URL.
+let payReturn = null;
+{
+  const qs = new URLSearchParams(location.search);
+  if (qs.has('pago')) {
+    payReturn = { ok: qs.get('pago') === 'ok', cs: qs.get('cs') || '' };
+    history.replaceState(null, '', location.pathname + location.hash);
+  }
+}
 
 // Link de regalo: /r/CÓDIGO (lo abre la cámara del celular al escanear el QR)
 let giftCode = null;
@@ -120,6 +143,8 @@ function noteOf(x) {
   if ((m = /^Para (.*)$/s.exec(note))) return T('note.to', { name: who(m[1]) });
   if ((m = /^De (.*)$/s.exec(note))) return T('note.from', { name: who(m[1]) });
   if ((m = /^Código (\w+)$/.exec(note))) return T('note.code', { code: m[1] });
+  if ((m = /^Regalo de (.*)$/s.exec(note))) return T('note.gift', { name: who(m[1]) });
+  if ((m = /^Juicio #(\d+)$/.exec(note))) return T('note.trial', { n: m[1] });
   return note;
 }
 // Fechas: 'es' a secas (24 h, como siempre) o 'en' (inglés de EE. UU.).
@@ -264,7 +289,41 @@ function render() {
   $('#btn-rebirth').textContent = T('rebirthWith', { x: fmtLong(S.initialSeconds) });
   lastMinute = -1;
   tick();
+  renderExtras();
   if ($('#sheet-history').open) renderHistory();
+  if ($('#sheet-settings').open) renderRankedRow();
+}
+
+/** Liga, aviso de juicio, punto del ranking y Revivir (en cero). */
+function renderExtras() {
+  if (!S) return;
+  const alive = S.expiresAt > now();
+  const league = $('#league');
+  league.hidden = !alive || !S.league;
+  if (!league.hidden) {
+    league.dataset.league = S.league;
+    $('#league-text').textContent = T(S.ranked ? 'league.chipIn' : 'league.chipOut', { league: T(`league.${S.league}`) });
+  }
+  const banner = $('#trial-banner');
+  banner.hidden = !S.trial;
+  if (S.trial) {
+    const left = fmtDur(Math.max(0, S.trial.until - now()) / 1000, 2);
+    banner.textContent = T(S.trial.phase === 'defensa' ? 'trial.bannerDefend' : 'trial.bannerVote', { x: left });
+  }
+  $('#rank-dot').hidden = !(S.jury > 0 || (S.trial && S.trial.phase === 'defensa'));
+  renderRevive();
+}
+
+/** En cero: renacer gratis (siempre, el botón principal) o revivir conservando la vida (Plus gratis o pago). */
+function renderRevive() {
+  const dead = S && S.expiresAt <= now();
+  const free = Boolean(S?.plus?.freeRevive);
+  const btn = $('#btn-revive');
+  btn.hidden = !dead || (!free && !(PAYMENTS && PRICES.revivir));
+  $('#revive-note').hidden = btn.hidden;
+  if (btn.hidden) return;
+  btn.textContent = free ? T('revive.free') : T('revive.buy', { price: priceOf('revivir') });
+  $('#revive-note').textContent = T('revive.note', { n: S.lifeNo });
 }
 
 function tick() {
@@ -284,6 +343,7 @@ function tick() {
     $('#status').textContent = T(`status.${mood}`);
     if (wasAlive && prev !== mood) vibrate(mood === 'dead' ? [280, 120, 280] : mood === 'critical' ? 60 : 0);
     lastMinute = -1;
+    renderExtras();
   }
 
   const minute = Math.floor(rem / 60_000);
@@ -291,6 +351,7 @@ function tick() {
     lastMinute = minute;
     renderMeta(rem);
     renderLast(rem);
+    if (S.trial) renderExtras(); // la cuenta regresiva del juicio
   }
   // Despierta justo cuando cambia el segundo visible.
   if (rem > 0) timer = setTimeout(tick, (rem % 1000 || 1000) + 10);
@@ -511,16 +572,24 @@ function renderTx() {
   const overCap = Boolean(c.cap) && used + txAmount > c.cap;
   const after = (S ? S.expiresAt - now() : 0) + secs * 1000;
   const short = !earn && txAmount > 0 && after <= 0;
+  // Dinero en tu palabra: hasta un límite por semana; para más, el Guardián con prueba del pago.
+  const m = MONEY_CATS.includes(txCat) ? S?.money : null;
+  const wordLeft = m ? Math.max(0, m.word - m.used) : Infinity;
+  const overWord = secs > wordLeft;
+  const limit = $('#tx-limit');
+  limit.hidden = !m || overWord; // si se pasa, lo explica el aviso de abajo
+  if (m) limit.textContent = T(m.verified ? 'money.leftVerified' : 'money.left', { left: fmtDur(wordLeft, 2), word: fmtLong(m.word) });
   const preview = $('#tx-preview');
   preview.textContent = !txAmount
     ? T(earn ? 'tx.seeEarn' : 'tx.seeSpend')
     : overCap ? T('tx.overCap', { used: fmtDur(used * HOUR) })
     : short ? T('tx.short')
+    : overWord ? T(m.word >= m.cap ? 'money.overCap' : 'money.overWord', { left: fmtDur(wordLeft, 2), cap: fmtLong(m.cap) })
     : T('tx.after', { x: fmtDur(after / 1000, 3) });
-  preview.classList.toggle('warn', overCap || short);
+  preview.classList.toggle('warn', overCap || short || overWord);
 
   const submit = $('#tx-submit');
-  submit.disabled = !secs || overCap || short || busy;
+  submit.disabled = !secs || overCap || short || overWord || busy;
   submit.textContent = secs ? T(earn ? 'earnX' : 'spendX', { x: fmtDur(Math.abs(secs), 3) }) : T(earn ? 'earn' : 'spend');
   submit.className = `btn ${earn ? 'btn-earn' : 'btn-danger'}`;
 
@@ -616,7 +685,8 @@ function judgeBubble(turn, last) {
       );
       const metaLine = el('span', 'it-meta');
       metaLine.append(el('span', `badge ${it.verdict}`, T(`verdict.${it.verdict}`)));
-      const what = c ? `${cText(c).label} · ${amountOf(it.category, it.amount)}${it.capped ? T('capped') : ''}` : '';
+      const cut = it.capped ? T(it.limit === 'proof' ? 'cappedProof' : 'capped') : '';
+      const what = c ? `${cText(c).label} · ${amountOf(it.category, it.amount)}${it.proof && it.seconds ? T('withProof') : ''}${cut}` : '';
       metaLine.append(document.createTextNode([what, it.reason].filter(Boolean).join(' — ')));
       row.append(metaLine);
       list.append(row);
@@ -655,7 +725,7 @@ function dayQuota() {
 }
 
 function quotaText({ per, left }) {
-  if (left <= 0) return T('quota.none', { per });
+  if (left <= 0) return T('quota.none', { per }) + (PAYMENTS && !S?.plus?.active ? T('quota.plus', { n: PLUS_DAYS }) : '');
   if (left >= per) return T('quota.full', { per });
   return T('quota.some', { left, per });
 }
@@ -936,7 +1006,7 @@ async function acceptDay() {
       clock.flash(r.net > 0 ? 'gain' : 'loss');
       vibrate(r.net > 0 ? 18 : [12, 50, 12]);
     }
-    toast(r.net ? T('ofLife', { x: signed(r.net) }) : T('day.closed'));
+    toast(r.trusted ? T('day.trusted') : r.net ? T('ofLife', { x: signed(r.net) }) : T('day.closed'));
   } catch (err) {
     if (err.status === 404 || err.code === 'closed') closeDay(), renderDay();
     toast(err.message);
@@ -1108,7 +1178,7 @@ async function claimCode(raw) {
     apply(r.state);
     clock.flash('gain');
     vibrate([20, 60, 20]);
-    toast(T('share.got', { x: fmtDur(r.seconds, 3), name: r.fromName }));
+    toast(T(r.gift ? 'share.gotGift' : 'share.got', { x: fmtDur(r.seconds, 3), name: r.fromName }));
   } catch (err) {
     toast(err.message);
   }
@@ -1192,6 +1262,522 @@ function openHistory() {
   if (!S) return;
   renderHistory();
   openSheet($('#sheet-history'));
+}
+
+/* ───────── ranking: quién va ganando más tiempo ───────── */
+
+let rankBoard = 'semana';
+let rankSeq = 0; // si cambia de pestaña rápido, solo vale la última respuesta
+const leagueName = (id) => T(`league.${id}`);
+const shortDate = new Intl.DateTimeFormat(LANG, { day: 'numeric', month: 'short' });
+/** Con signo y dos unidades ("+3d 10h"): en listas angostas tres unidades parten la línea. */
+const signed2 = (s) => (s ? `${s > 0 ? '+' : '−'}${fmtDur(s, 2)}` : '0m');
+
+function tags(x) {
+  const out = [];
+  if (x.plus) out.push(['plus', T('badge.plus')]);
+  if (x.verified) out.push(['ok', T('badge.verified')]);
+  if (x.onTrial) out.push(['warn', T('badge.onTrial')]);
+  else if (x.absolved) out.push(['ok', T('badge.absolved')]);
+  return out.map(([cls, text]) => el('span', `tag ${cls}`, text));
+}
+
+function openRank(board) {
+  if (board) rankBoard = board;
+  renderRankShell();
+  openSheet($('#sheet-rank'));
+  loadRank();
+}
+
+function renderRankShell() {
+  $('#rank-seg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.board === rankBoard)));
+  const join = !S?.ranked && rankBoard !== 'juicios';
+  $('#rank-join').hidden = !join;
+  if (join) {
+    $('#rank-name').hidden = Boolean(S?.nickname);
+    $('#rank-join-note').textContent = S?.bannedUntil ? T('rank.banned', { date: shortDate.format(S.bannedUntil) }) : '';
+    $('#rank-join-btn').disabled = Boolean(S?.bannedUntil);
+  }
+  const count = $('#trials-count');
+  count.hidden = !(S?.jury > 0);
+  count.textContent = S?.jury || '';
+  $('#rank-hint').textContent = T(`rank.hint.${rankBoard}`);
+}
+
+async function loadRank() {
+  const seq = ++rankSeq;
+  const list = $('#rank-list');
+  list.replaceChildren(el('li', 'loading', T('loading')));
+  $('#rank-empty').hidden = true;
+  try {
+    const data = rankBoard === 'juicios' ? await api('GET', '/api/trials') : await api('GET', `/api/rank?board=${rankBoard}`);
+    if (seq !== rankSeq) return;
+    if (rankBoard === 'juicios') renderTrialList(data);
+    else renderBoard(data);
+  } catch (err) {
+    if (seq !== rankSeq) return;
+    list.replaceChildren();
+    toast(err.message);
+  }
+}
+
+function rankRow(r, board) {
+  const li = el('li', `rank-row${r.you ? ' you' : ''}`);
+  const b = el('button', 'rank-btn');
+  b.type = 'button';
+  b.dataset.person = r.id;
+  const who = el('span', 'who');
+  who.append(el('span', 'name', r.you ? `${r.name} · ${T('you')}` : r.name));
+  const sub = el('span', 'sub');
+  sub.append(el('span', `lg lg-${r.league}`, leagueName(r.league)), ...tags(r));
+  who.append(sub);
+  const week = board === 'semana';
+  const score = week ? signed2(r.score) : fmtDur(r.score, 2);
+  b.append(el('span', 'pos', String(r.pos)), who, el('span', `score${week && r.score < 0 ? ' down' : week && r.score > 0 ? ' up' : ''}`, score));
+  li.append(b);
+  return li;
+}
+
+function renderBoard(data) {
+  const rows = data.rows.map((r) => rankRow(r, data.board));
+  // si no está entre los primeros 100, igual ve su puesto al final
+  if (data.me && !data.rows.some((r) => r.you)) rows.push(el('li', 'gap', '···'), rankRow(data.me, data.board));
+  $('#rank-list').replaceChildren(...rows);
+  const empty = $('#rank-empty');
+  empty.hidden = data.rows.length > 0;
+  empty.textContent = T('rank.empty');
+}
+
+function trialLine(t) {
+  if (t.phase === 'cerrado') return T(`t.v.${t.verdict}`);
+  const left = fmtDur(Math.max(0, t.until - now()) / 1000, 2);
+  return T(t.phase === 'defensa' ? 't.sDefense' : 't.sVote', { x: left });
+}
+
+function trialRow(t) {
+  const li = el('li', `rank-row${t.mine ? ' you' : ''}`);
+  const b = el('button', 'rank-btn');
+  b.type = 'button';
+  b.dataset.trial = t.id;
+  const who = el('span', 'who');
+  who.append(el('span', 'name', t.name || T('someone')));
+  const reasons = Object.keys(t.reasons).map((r) => T(`reason.${r}`)).join(' · ');
+  who.append(el('span', 'sub', [trialLine(t), reasons].filter(Boolean).join(' — ')));
+  let right = '';
+  let cls = '';
+  if (t.phase === 'cerrado') right = `${t.guilty}–${t.innocent}`;
+  else if (t.mine) (right = T('t.you')), (cls = ' warn');
+  else if (t.myVote) right = T('t.voted');
+  else if (t.canVote) (right = T('t.voteNow')), (cls = ' up');
+  b.append(el('span', 'pos', `#${t.id}`), who, el('span', `score small${cls}`, right));
+  li.append(b);
+  return li;
+}
+
+function renderTrialList(data) {
+  const items = [];
+  if (data.open.length) items.push(el('li', 'day', T('t.open')), ...data.open.map(trialRow));
+  if (data.closed.length) items.push(el('li', 'day', T('t.closed')), ...data.closed.map(trialRow));
+  $('#rank-list').replaceChildren(...items);
+  const empty = $('#rank-empty');
+  empty.hidden = items.length > 0;
+  empty.textContent = T('t.none');
+}
+
+async function joinRank() {
+  const btn = $('#rank-join-btn');
+  btn.disabled = true;
+  try {
+    const input = $('#rank-name');
+    if (!S.nickname) {
+      const name = input.value.trim();
+      if (!name) return void (toast(T('rank.needName')), input.focus());
+      if (KEY_IN_TEXT.test(name)) return void toast(T('name.isKey'));
+      apply((await api('PATCH', '/api/me', { nickname: name })).state);
+    }
+    apply((await api('PATCH', '/api/me', { ranked: true })).state);
+    vibrate(15);
+    toast(T('rank.joined'));
+    renderRankShell();
+    loadRank();
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ───────── perfil: qué hace y por qué vive tanto ───────── */
+
+let profile = null;
+let accReason = '';
+
+/** De dónde salió el tiempo de esta vida: empezó con X, ganó, recibió, compró, gastó, vivió. */
+function renderWhy(ul, p) {
+  const rows = [[T('why.start'), INITIAL]];
+  const w = p.why;
+  for (const [k, v] of Object.entries(w)) if (v) rows.push([T(`why.${k}`), v]);
+  rows.push([T('why.lived'), -Math.round((now() - p.bornAt) / 1000)]);
+  ul.replaceChildren(
+    ...rows.map(([label, v]) => {
+      const li = el('li');
+      li.append(el('span', null, label), el('span', `amt ${v > 0 ? 'up' : v < 0 ? 'down' : ''}`, signed2(v)));
+      return li;
+    }),
+  );
+}
+
+function renderDoing(ul, p) {
+  ul.replaceChildren(
+    ...p.doing.map((d) => {
+      const c = CATEGORIES[d.category];
+      const li = el('li');
+      const left = el('span');
+      left.append(el('span', null, c ? cText(c).label : d.category), el('small', 'detail', ` · ${amountOf(d.category, d.amount)} · ${T('times', { n: d.n })}`));
+      li.append(left, el('span', `amt ${d.seconds > 0 ? 'up' : 'down'}`, signed2(d.seconds)));
+      return li;
+    }),
+  );
+}
+
+function renderRecent(ol, list) {
+  ol.replaceChildren(
+    ...list.map((t) => {
+      const li = el('li', 'item');
+      const info = el('span', 'info');
+      info.append(el('span', 'note', noteOf(t) || labelOf(t)));
+      const detail = detailOf(t);
+      if (detail) info.append(el('small', 'detail', detail));
+      li.append(el('span', `amt ${t.seconds > 0 ? 'up' : 'down'}`, signed2(t.seconds)), info, el('time', null, shortDate.format(t.at)));
+      return li;
+    }),
+  );
+}
+
+async function openProfile(publicId) {
+  try {
+    profile = await api('GET', `/api/people/${publicId}`);
+    accReason = '';
+    renderProfile();
+    openSheet($('#sheet-profile'));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function renderProfile() {
+  const p = profile;
+  if (!p) return;
+  $('#p-name').textContent = p.you ? `${p.name || T('you')} · ${T('you')}` : p.name;
+  $('#p-sub').textContent = T('p.sub', { n: p.lifeNo, x: fmtDur((now() - p.bornAt) / 1000, 2) });
+  const lg = $('#p-league');
+  lg.className = `league-badge lg-${p.league}`;
+  lg.textContent = leagueName(p.league);
+  $('#p-badges').replaceChildren(...tags(p));
+  $('#p-left').textContent = fmtDur(p.remaining, 2);
+  $('#p-week').textContent = signed2(p.week);
+  $('#p-week').className = `stat-v ${p.week > 0 ? 'up' : p.week < 0 ? 'down' : ''}`;
+  $('#p-alive').textContent = fmtDur((now() - p.bornAt) / 1000, 1);
+  renderWhy($('#p-why'), p);
+  renderDoing($('#p-doing'), p);
+  $('#p-doing-title').hidden = !p.doing.length;
+  renderRecent($('#p-recent'), p.recent);
+  $('#p-empty').hidden = p.recent.length > 0;
+
+  // Pedir juicio: solo si se puede; si no, por qué (salvo en su propio perfil).
+  const note = $('#p-note');
+  const reason = p.you ? null : p.accuseProblem;
+  $('#p-accuse-open').hidden = p.you || !p.canAccuse || !$('#p-accuse').hidden;
+  note.hidden = !reason || reason === 'own';
+  if (reason) note.textContent = T(`acc.no.${reason}`);
+  $('#acc-reasons').replaceChildren(
+    ...['ingresos', 'imposible', 'cuentas', 'otro'].map((r) => {
+      const b = button(T(`reason.${r}`), { reason: r });
+      b.setAttribute('aria-pressed', String(r === accReason));
+      return b;
+    }),
+  );
+  $('#acc-send').disabled = !accReason;
+}
+
+async function sendAccusation(e) {
+  e.preventDefault();
+  if (!profile || !accReason) return;
+  const btn = $('#acc-send');
+  btn.disabled = true;
+  try {
+    const r = await api('POST', '/api/trials', { target: profile.id, reason: accReason, text: $('#acc-text').value });
+    $('#acc-text').value = '';
+    $('#p-accuse').hidden = true;
+    vibrate(20);
+    toast(r.opened ? T('acc.opened') : T('acc.counted', { n: r.count, of: r.needed }));
+    profile = await api('GET', `/api/people/${profile.id}`);
+    renderProfile();
+    refresh();
+  } catch (err) {
+    toast(err.message);
+    btn.disabled = false;
+  }
+}
+
+/* ───────── juicios ───────── */
+
+let trialView = null;
+
+async function openTrial(id) {
+  try {
+    trialView = await api('GET', `/api/trials/${id}`);
+    renderTrial();
+    openSheet($('#sheet-trial'));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function renderTrial() {
+  const t = trialView;
+  if (!t) return;
+  $('#t-title').textContent = t.mine ? T('t.titleMine') : T('t.title', { name: t.name || T('someone') });
+  $('#t-phase').textContent =
+    t.phase === 'cerrado'
+      ? T(`t.v.${t.verdict}`) + (t.verdict === 'culpable' && t.penalty ? T('t.penalty', { x: fmtDur(t.penalty, 2) }) : '') + ` (${t.guilty}–${t.innocent})`
+      : trialLine(t);
+  $('#t-acc').replaceChildren(
+    ...t.accusations.map((a) => {
+      const li = el('li');
+      li.append(el('b', null, T(`reason.${a.reason}`)));
+      if (a.text) li.append(el('span', null, ` — “${a.text}”`));
+      return li;
+    }),
+  );
+  const defending = t.mine && t.phase === 'defensa';
+  $('#t-defense').hidden = defending;
+  $('#t-defense').textContent = t.defense ? `“${t.defense}”` : T('t.noDefense');
+  $('#t-defend').hidden = !defending;
+  const p = t.profile;
+  $('#t-evidence').hidden = !p;
+  if (p) {
+    renderWhy($('#t-why'), p);
+    renderRecent($('#t-recent'), p.recent);
+  }
+  $('#t-profile').hidden = !p?.id || t.mine;
+  $('#t-vote').hidden = !t.canVote;
+  const note = $('#t-note');
+  const msg = t.myVote ? T('t.youVoted', { v: T(`t.${t.myVote}`) }) : !t.canVote && t.problem && t.problem !== 'phase' ? T(`t.no.${t.problem}`) : '';
+  note.hidden = !msg;
+  note.textContent = msg;
+  $('#t-rules').textContent = T('t.rules', { q: t.rules.quorum });
+}
+
+async function castVote(vote) {
+  if (!trialView) return;
+  const ok = await confirmSheet({
+    title: T(vote === 'culpable' ? 't.confirmGuilty' : 't.confirmInnocent', { name: trialView.name || T('someone') }),
+    text: T('t.confirmText'),
+    ok: T(`t.${vote}`),
+    danger: vote === 'culpable',
+  });
+  if (!ok) return;
+  try {
+    await api('POST', `/api/trials/${trialView.id}/vote`, { vote });
+    vibrate(15);
+    toast(T('t.thanks'));
+    trialView = await api('GET', `/api/trials/${trialView.id}`);
+    renderTrial();
+    refresh();
+    if ($('#sheet-rank').open && rankBoard === 'juicios') loadRank();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function sendDefense(e) {
+  e.preventDefault();
+  const text = $('#t-defend-text').value.trim();
+  if (!text || !trialView) return toast(T('t.writeDefense'));
+  try {
+    const r = await api('POST', `/api/trials/${trialView.id}/defense`, { text });
+    apply(r.state);
+    $('#t-defend-text').value = '';
+    toast(T('t.defended'));
+    trialView = await api('GET', `/api/trials/${trialView.id}`);
+    renderTrial();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+/** Desde el aviso push o el banner: a su juicio si lo tiene; si no, a la lista de juicios. */
+function openTrialFromNotice() {
+  if (!S) return;
+  document.querySelectorAll('dialog.sheet[open]').forEach((d) => closeSheet(d));
+  setTimeout(() => (S.trial ? openTrial(S.trial.id) : openRank('juicios')), 260);
+}
+
+/* ───────── tienda: Plus, +1 día, regalos y Revivir (Stripe) ───────── */
+
+let storeData = null;
+let openGift = null; // código cuyo QR está a la vista
+
+async function openStore(showGift = null) {
+  openGift = showGift;
+  renderStore();
+  openSheet($('#sheet-store'));
+  try {
+    storeData = await api('GET', '/api/store');
+    if (storeData.state) apply(storeData.state);
+    renderStore();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+const BUY_DATE = new Intl.DateTimeFormat(LANG, { weekday: 'long', day: 'numeric', month: 'long' });
+
+function productCard(pr) {
+  const card = el('div', 'product');
+  const head = el('div', 'product-head');
+  head.append(el('p', 'row-t', T(`prod.${pr.id}.name`)), el('p', 'price', priceOf(pr.id)));
+  card.append(head, el('p', 'row-s', T(`prod.${pr.id}.desc`)));
+  if (!pr.ok && pr.code) card.append(el('p', 'row-s warn-text', T(`buy.${pr.code}`, { date: pr.until ? BUY_DATE.format(pr.until) : '' })));
+  const b = el('button', 'btn btn-spend', T(`prod.${pr.id}.buy`, { price: priceOf(pr.id) }));
+  b.type = 'button';
+  b.dataset.buy = pr.id;
+  b.disabled = !pr.ok || !storeData?.enabled;
+  card.append(b);
+  return card;
+}
+
+function giftRow(g) {
+  const li = el('li', `gift-row ${g.status}`);
+  const head = el('button', 'gift-btn');
+  head.type = 'button';
+  head.dataset.gift = g.code;
+  head.disabled = g.status !== 'pendiente';
+  const info = el('span', 'info');
+  info.append(el('span', 'code-small', `${g.code.slice(0, 3)} ${g.code.slice(3)}`));
+  const status =
+    g.status === 'entregado' ? T('gift.delivered', { name: g.toName || T('someone') }) : g.status === 'anulado' ? T('gift.void') : T('gift.pending');
+  info.append(el('small', 'detail', `${fmtLong(g.seconds)} · ${status}`));
+  head.append(info, el('span', 'chev', g.status === 'pendiente' ? (openGift === g.code ? '−' : T('gift.show')) : ''));
+  li.append(head);
+  if (openGift === g.code && g.status === 'pendiente') {
+    const box = el('div', 'gift-qr');
+    const qr = el('div', 'qr');
+    qr.innerHTML = qrSvg(`${location.origin}/r/${g.code}`);
+    box.append(qr, el('p', 'row-s center', T('gift.howTo')));
+    if (navigator.share) {
+      const share = el('button', 'pill', T('gift.share'));
+      share.type = 'button';
+      share.dataset.share = g.code;
+      box.append(share);
+    }
+    li.append(box);
+  }
+  return li;
+}
+
+function renderStore() {
+  const d = storeData;
+  const enabled = d ? d.enabled : PAYMENTS;
+  $('#store-off').hidden = enabled;
+  $('#store-test').hidden = !d?.test;
+  // Plus
+  const plus = S?.plus || {};
+  $('#plus-price').textContent = PRICES.plus ? T('plus.price', { price: priceOf('plus') }) : '';
+  const status = $('#plus-status');
+  status.hidden = !plus.active;
+  if (plus.active) status.textContent = T(plus.renews ? 'plus.renews' : 'plus.ends', { date: BUY_DATE.format(plus.until) });
+  const pbtn = $('#plus-btn');
+  pbtn.hidden = Boolean(plus.active);
+  pbtn.textContent = T('plus.get', { price: priceOf('plus') });
+  pbtn.disabled = !enabled;
+  const renew = $('#plus-renew');
+  renew.hidden = !plus.active;
+  renew.textContent = T(plus.renews ? 'plus.cancel' : 'plus.resume');
+  $('#plus-card').classList.toggle('on', Boolean(plus.active));
+  // Productos: Revivir solo si está en cero; +1 día y regalo si no.
+  const dead = S && S.expiresAt <= now();
+  const products = (d?.products || []).filter((pr) => pr.id !== 'plus' && (pr.id === 'revivir' ? dead : pr.id !== 'dia' || !dead));
+  $('#store-products').replaceChildren(...products.map(productCard));
+  // Regalos comprados
+  const gifts = d?.gifts || [];
+  $('#gifts-title').hidden = !gifts.length;
+  $('#store-gifts').replaceChildren(...gifts.map(giftRow));
+}
+
+/** Al pago de Stripe (redirección). Lo comprado llega por el webhook o al volver, nunca por esta página. */
+async function buy(product, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const { url } = await api('POST', '/api/checkout', { product });
+    location.href = url;
+  } catch (err) {
+    toast(err.message);
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function setRenewal(renews) {
+  if (!renews) {
+    const ok = await confirmSheet({
+      title: T('plus.cancelTitle'),
+      text: T('plus.cancelText', { date: BUY_DATE.format(S.plus.until) }),
+      ok: T('plus.cancelOk'),
+    });
+    if (!ok) return;
+  }
+  try {
+    apply((await api('POST', '/api/plus/renewal', { renews })).state);
+    toast(T(renews ? 'plus.resumed' : 'plus.canceled'));
+    if ($('#sheet-store').open) renderStore();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function revive() {
+  if (S?.plus?.freeRevive) {
+    try {
+      apply((await api('POST', '/api/revive')).state);
+      clock.flash('gain');
+      vibrate(30);
+      toast(T('pay.revived'));
+    } catch (err) {
+      toast(err.message);
+    }
+    return;
+  }
+  buy('revivir', $('#btn-revive'));
+}
+
+/** Volvió de Stripe: el servidor confirma el pago (webhook, o le pregunta a Stripe) y entonces se celebra. */
+async function handlePayReturn() {
+  const r = payReturn;
+  payReturn = null;
+  if (!r) return;
+  if (!r.ok) return toast(T('pay.canceled'));
+  if (!/^cs_[\w]+$/.test(r.cs)) return;
+  toast(T('pay.checking'));
+  for (let i = 0; i < 15; i++) {
+    try {
+      const st = await api('GET', `/api/checkout/${r.cs}`);
+      if (st.state) apply(st.state);
+      if (st.status === 'pagado') {
+        clock.flash('gain');
+        vibrate([20, 60, 20]);
+        if (st.product === 'regalo') {
+          toast(T('pay.gift'));
+          openStore(st.giftCode);
+        } else toast(T(`pay.${st.product}`));
+        return;
+      }
+    } catch (err) {
+      if (err.status === 404) return toast(T('pay.unknown'));
+    }
+    await sleep(2000);
+  }
+  toast(T('pay.slow'));
 }
 
 /* ───────── ciclo de vida ───────── */
@@ -1401,9 +1987,38 @@ function openSettings(focusLink = false) {
   $('#foot').textContent = `Tiempo · ${VERSION}`;
   renderInstall();
   renderPush();
+  renderRankedRow();
   $('#btn-scan-key').hidden = !canScan();
   openSheet($('#sheet-settings'));
   if (focusLink) setTimeout(() => $('#link-input').focus(), 380);
+}
+
+function renderRankedRow() {
+  if (!S) return;
+  $('#ranked-status').textContent = S.ranked
+    ? T('rank.rowOn')
+    : S.bannedUntil
+      ? T('rank.banned', { date: shortDate.format(S.bannedUntil) })
+      : T('rank.rowOff');
+  const b = $('#btn-ranked');
+  b.textContent = T(S.ranked ? 'rank.leave' : 'rank.join');
+  b.disabled = !S.ranked && Boolean(S.bannedUntil);
+}
+
+async function toggleRanked() {
+  if (!S) return;
+  const on = !S.ranked;
+  if (on && !S.nickname) {
+    toast(T('rank.needName'));
+    return $('#name-input').focus();
+  }
+  try {
+    apply((await api('PATCH', '/api/me', { ranked: on })).state);
+    renderRankedRow();
+    toast(T(on ? 'rank.joined' : 'rank.left'));
+  } catch (err) {
+    toast(err.message);
+  }
 }
 
 function renderLang() {
@@ -1586,6 +2201,7 @@ function registerSW() {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data?.open === 'day') openDayFromReminder(); // tocó el recordatorio con la app ya abierta
+    if (e.data?.open === 'trial') refresh().then(openTrialFromNotice); // tocó el aviso de un juicio
   });
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     // Nueva versión desplegada: recarga, pero nunca a mitad de una acción; si hay una hoja abierta,
@@ -1619,7 +2235,12 @@ $('#btn-day').addEventListener('click', openDay);
 $('#btn-money').addEventListener('click', () => openTx('earn'));
 $('#btn-share').addEventListener('click', () => openShare());
 $('#btn-rebirth').addEventListener('click', () => rebirth(false));
+$('#btn-revive').addEventListener('click', revive);
 $('#btn-history').addEventListener('click', openHistory);
+$('#btn-rank').addEventListener('click', () => openRank());
+$('#league').addEventListener('click', () => openRank());
+$('#trial-banner').addEventListener('click', openTrialFromNotice);
+$('#btn-store').addEventListener('click', () => openStore());
 $('#last').addEventListener('click', openHistory);
 $('#btn-settings').addEventListener('click', () => openSettings());
 
@@ -1718,7 +2339,65 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && $('#sheet-scan').open) closeSheet($('#sheet-scan'));
 });
 
+// Ranking, perfiles y juicios
+$('#rank-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-board]');
+  if (!b || b.dataset.board === rankBoard) return;
+  rankBoard = b.dataset.board;
+  renderRankShell();
+  loadRank();
+});
+$('#rank-list').addEventListener('click', (e) => {
+  const person = e.target.closest('button[data-person]');
+  if (person) return openProfile(person.dataset.person);
+  const trial = e.target.closest('button[data-trial]');
+  if (trial) openTrial(Number(trial.dataset.trial));
+});
+$('#rank-join-btn').addEventListener('click', joinRank);
+$('#p-accuse-open').addEventListener('click', () => {
+  $('#p-accuse').hidden = false;
+  $('#p-accuse-open').hidden = true;
+  setTimeout(() => $('#p-accuse').scrollIntoView({ behavior: 'smooth', block: 'end' }), 50);
+});
+$('#acc-reasons').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-reason]');
+  if (!b) return;
+  accReason = b.dataset.reason;
+  $('#acc-reasons').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  $('#acc-send').disabled = false;
+});
+$('#p-accuse').addEventListener('submit', sendAccusation);
+$('#sheet-profile').addEventListener('close', () => {
+  $('#p-accuse').hidden = true;
+  $('#acc-text').value = '';
+});
+$('#t-guilty').addEventListener('click', () => castVote('culpable'));
+$('#t-innocent').addEventListener('click', () => castVote('inocente'));
+$('#t-defend').addEventListener('submit', sendDefense);
+$('#t-profile').addEventListener('click', () => trialView?.profile?.id && openProfile(trialView.profile.id));
+
+// Tienda
+$('#plus-btn').addEventListener('click', (e) => buy('plus', e.currentTarget));
+$('#plus-renew').addEventListener('click', () => setRenewal(!S?.plus?.renews));
+$('#store-products').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-buy]');
+  if (b) buy(b.dataset.buy, b);
+});
+$('#store-gifts').addEventListener('click', (e) => {
+  const share = e.target.closest('button[data-share]');
+  if (share) {
+    const url = `${location.origin}/r/${share.dataset.share}`;
+    navigator.share?.({ title: 'Tiempo', text: T('gift.shareText'), url }).catch(() => {});
+    return;
+  }
+  const b = e.target.closest('button[data-gift]');
+  if (!b) return;
+  openGift = openGift === b.dataset.gift ? null : b.dataset.gift;
+  renderStore();
+});
+
 // Ajustes
+$('#btn-ranked').addEventListener('click', toggleRanked);
 $('#btn-push').addEventListener('click', togglePush);
 $('#remind-seg').addEventListener('click', setRemind);
 $('#lang-seg').addEventListener('click', setLang);
@@ -1776,8 +2455,17 @@ navigator.storage?.persist?.().catch(() => {});
 if (saved.token) {
   refresh().then((ok) => {
     syncPush();
-    if (ok && giftCode) claimGift({ ask: true });
+    if (ok && payReturn) handlePayReturn();
+    else if (ok && giftCode) claimGift({ ask: true });
+    else if (ok && trialOnLoad) openTrialFromNotice();
     else if (ok && dayOnLoad) openDayFromReminder();
-    dayOnLoad = false;
+    dayOnLoad = trialOnLoad = false;
   });
+} else if (payReturn?.ok) {
+  // Pagó desde un navegador sin su reloj (p. ej. en iPhone el pago se abre fuera de la app instalada):
+  // la compra ya quedó en su reloj del servidor; que vuelva a la app.
+  const gift = $('#gift');
+  gift.hidden = false;
+  gift.textContent = T('pay.noClock');
+  payReturn = null;
 }
