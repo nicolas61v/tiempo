@@ -16,6 +16,7 @@
   <meta name="days-per-day" content="__DAYS_PER_DAY__">
   <meta name="payments" content="__PAYMENTS__">
   <meta name="prices" content="__PRICES__">
+  <meta name="usd-cop" content="__USD_COP__">
   <title>Tiempo</title>
   <link rel="preload" href="/fonts/inter-latin-200-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="manifest" href="/manifest.webmanifest">
@@ -53,6 +54,7 @@
       <p class="expiry" id="expiry"></p>
       <button class="league" id="league" type="button" hidden><span class="league-dot" aria-hidden="true"></span><span id="league-text"></span></button>
       <button class="trial-banner" id="trial-banner" type="button" hidden></button>
+      <button class="trial-banner soft" id="country-banner" type="button" hidden data-i18n="country.banner">Complete your profile: choose your country</button>
       <p class="gift" id="gift" hidden></p>
       <div class="recover" id="recover" hidden>
         <p data-i18n="recover.text">We couldn't find your clock on the server, but your key is still saved on this phone.</p>
@@ -63,7 +65,10 @@
     </section>
 
     <footer class="dock dock-start">
-      <input class="field name-field" id="intro-name" maxlength="32" placeholder="Your name or nickname (optional)" data-i18n-ph="ph.name" autocomplete="nickname" enterkeyhint="go" aria-label="Your name or nickname, up to 32 characters" data-i18n-aria="a.name">
+      <input class="field name-field" id="intro-name" maxlength="32" placeholder="Your name or nickname (optional)" data-i18n-ph="ph.name" autocomplete="nickname" enterkeyhint="next" aria-label="Your name or nickname, up to 32 characters" data-i18n-aria="a.name">
+      <select class="field name-field country-field" id="intro-country" required aria-label="Your country (required)" data-i18n-aria="a.country"></select>
+      <input class="field name-field" id="intro-bio" maxlength="160" placeholder="What do you do? (optional)" data-i18n-ph="ph.bioJoin" autocomplete="off" enterkeyhint="go" aria-label="What do you do? Up to 160 characters" data-i18n-aria="a.bio">
+      <p class="row-s center intro-hint" data-i18n="bio.hint">Tell what you do: the Guardian and the juries take it into account, and it helps your defense if someone puts you on trial.</p>
       <button class="btn btn-earn" id="btn-start" type="button" data-i18n="start">Start</button>
       <button class="link" id="btn-have-key" type="button" data-i18n="haveKey">I already have a key</button>
     </footer>
@@ -125,7 +130,7 @@
       <div class="day-head">
         <div>
           <h2 class="sheet-title" id="d-title" data-i18n="day.title">My day</h2>
-          <p class="row-s" data-i18n="day.sub">Tell (or dictate to) the Guardian what you did. Gym and study need a photo; money goes on your word.</p>
+          <p class="row-s" data-i18n="day.sub">Tell (or dictate to) the Guardian what you did. Gym and study need a photo; money goes on your word. Sexual content is forbidden: it costs days of life.</p>
         </div>
         <button class="icon-btn" id="d-voice" type="button" aria-pressed="false" aria-label="Read verdicts aloud" data-i18n-aria="a.readAloud" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
@@ -233,6 +238,17 @@
             <button type="button" role="radio" data-lang="es" lang="es">Español</button>
           </div>
         </div>
+        <div class="row lang-row needs-session">
+          <div><p class="row-t" data-i18n="country">Country</p></div>
+          <select class="field" id="country-select" aria-label="Your country" data-i18n-aria="a.country"></select>
+        </div>
+        <div class="row lang-row needs-session">
+          <div><p class="row-t" data-i18n="currency">Currency</p><p class="row-s" id="currency-status"></p></div>
+          <div class="seg" id="currency-seg" role="radiogroup" aria-label="Currency" data-i18n-aria="currency">
+            <button type="button" role="radio" data-cur="COP">COP</button>
+            <button type="button" role="radio" data-cur="USD">USD</button>
+          </div>
+        </div>
         <div class="row">
           <div><p class="row-t" data-i18n="rateTitle">Your exchange rate</p><p class="row-s" id="rate-text"></p></div>
         </div>
@@ -264,6 +280,15 @@
             <p class="row-s counter" id="name-count"></p>
           </div>
           <button class="pill" type="submit" data-i18n="save">Save</button>
+        </form>
+        <form class="row name-row needs-session" id="bio-form">
+          <div class="grow">
+            <p class="row-t" data-i18n="bio.title">What do you do?</p>
+            <p class="row-s" data-i18n="bio.sub">One short line about your life. Everyone in the ranking sees it, and the Guardian takes it into account.</p>
+            <textarea class="field area bio-area" id="bio-input" rows="2" maxlength="160" placeholder="I study engineering and sell nail kits on weekends" data-i18n-ph="ph.bio" aria-label="What do you do? Up to 160 characters" data-i18n-aria="a.bio"></textarea>
+            <p class="row-s counter" id="bio-count"></p>
+          </div>
+          <button class="pill" type="submit" id="bio-save" data-i18n="save">Save</button>
         </form>
         <div class="row needs-session">
           <div><p class="row-t" data-i18n="yourKey">Your key</p><p class="row-s" data-i18n="key.sub">It's your ID: it opens this clock on another device. Don't share it.</p><p class="key" id="key-text"></p></div>
@@ -319,6 +344,7 @@
         <p class="row-t" data-i18n="rank.joinTitle">Join the ranking</p>
         <p class="row-s" data-i18n="rank.joinText">Your name, your league and what you do (the last 30 days) become visible to everyone in the ranking. If something doesn't add up, they can put you on trial.</p>
         <input class="field" id="rank-name" maxlength="32" placeholder="Your name or nickname" data-i18n-ph="ph.nick" autocomplete="nickname" enterkeyhint="done" aria-label="Your name or nickname, up to 32 characters" data-i18n-aria="a.name" hidden>
+        <textarea class="field area bio-area" id="rank-bio" rows="2" maxlength="160" placeholder="What do you do? (optional)" data-i18n-ph="ph.bioJoin" aria-label="What do you do? Up to 160 characters" data-i18n-aria="a.bio" hidden></textarea>
         <p class="row-s warn-text" id="rank-join-note"></p>
         <button class="btn btn-earn" id="rank-join-btn" type="button" data-i18n="rank.join">Join</button>
       </div>
@@ -337,6 +363,8 @@
         <div class="grow"><h2 class="sheet-title" id="p-name"></h2><p class="row-s" id="p-sub"></p></div>
         <span class="league-badge" id="p-league"></span>
       </div>
+      <p class="row-s" id="p-country" hidden></p>
+      <p class="bio-line" id="p-bio" hidden></p>
       <div class="tags" id="p-badges"></div>
       <div class="stats">
         <div class="stat"><span class="stat-k" data-i18n="p.left">Left</span><span class="stat-v" id="p-left">0m</span></div>
@@ -353,7 +381,9 @@
       <button class="link" id="p-accuse-open" type="button" hidden data-i18n="acc.open">Something doesn't add up? Request a trial</button>
       <form class="accuse" id="p-accuse" hidden>
         <p class="row-t" data-i18n="acc.title">Request a trial</p>
-        <p class="row-s" data-i18n="acc.text">It takes 3 players (or 1 if they earned 2 weeks of life in 7 days). They get 24 h to defend themselves and then a jury of players votes. It's anonymous.</p>
+        <p class="row-s" data-i18n="acc.text">Day 1: it goes to trial if the summons add up to 3 of power (or 1 if they earned 2 weeks of life in 7 days), and that day they must defend themselves with proof. Day 2: secret verdict. Summoning counts as your vote of the day and it's anonymous.</p>
+        <p class="row-s power" id="acc-stake"></p>
+        <p class="row-s power" id="acc-power"></p>
         <div class="cats" id="acc-reasons" role="group" aria-label="Reason" data-i18n-aria="a.reason"></div>
         <textarea class="field area" id="acc-text" rows="2" maxlength="280" placeholder="What doesn't add up? (optional)" data-i18n-ph="ph.accuse"></textarea>
         <button class="btn btn-danger" id="acc-send" type="submit" disabled data-i18n="acc.send">Request trial</button>
@@ -368,14 +398,34 @@
       <div class="grip"></div>
       <h2 class="sheet-title" id="t-title"></h2>
       <p class="row-s" id="t-phase"></p>
+      <div class="stake-box">
+        <p class="stake" id="t-stake"></p>
+        <p class="row-s" id="t-count"></p>
+        <p class="row-s" id="t-guardian" hidden></p>
+      </div>
+      <button class="btn btn-spend" id="t-summon" type="button" hidden data-i18n="t.summon">Take them to trial too</button>
       <h3 class="sub-title" data-i18n="t.accusations">Accusations</h3>
       <ul class="quotes" id="t-acc"></ul>
       <h3 class="sub-title" data-i18n="t.defense">Defense</h3>
       <p class="quote" id="t-defense"></p>
       <form class="composer" id="t-defend" hidden>
+        <p class="row-s" data-i18n="t.defendHint">Your defense needs proof: 1 to 3 photos (a bank statement, an invoice, a receipt). Cover account numbers: the jury sees them and they're deleted when the trial closes. The Guardian checks them: sexual content costs days of life.</p>
+        <div class="thumbs" id="t-thumbs"></div>
         <textarea class="field area" id="t-defend-text" rows="3" maxlength="600" placeholder="Explain where your time comes from. Jurors will read it before voting." data-i18n-ph="ph.defense"></textarea>
-        <button class="btn btn-earn" type="submit" data-i18n="t.defend">Send my defense</button>
+        <div class="composer-row">
+          <label class="pill photo-btn">
+            <input type="file" id="t-file" accept="image/*" multiple hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span data-i18n="photo">Photo</span>
+          </label>
+          <button class="btn btn-earn" id="t-defend-btn" type="submit" data-i18n="t.defend">Send my defense</button>
+        </div>
       </form>
+      <div class="review" id="t-review" hidden>
+        <p class="row-t"><span data-i18n="t.review">What the Guardian saw in the proof</span> <span class="tag" id="t-supports"></span></p>
+        <p class="row-s" id="t-review-text"></p>
+      </div>
+      <div class="proofs" id="t-proofs" hidden></div>
+      <p class="row-s" id="t-proofs-note" hidden></p>
       <div class="evidence" id="t-evidence">
         <h3 class="sub-title" data-i18n="t.evidence">Evidence: this life</h3>
         <ul class="why" id="t-why"></ul>

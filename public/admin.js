@@ -87,6 +87,7 @@ async function load(key) {
     card('teléfonos', t.dispositivos),
     card('redes', t.redes),
     card('en el ranking', data.enRanking ?? 0),
+    card('faltas (personas)', `${data.faltas?.total ?? 0} (${data.faltas?.personas ?? 0})`),
     card('juicios abiertos', data.juicios?.abierto ?? 0),
     card('culpables', data.juicios?.culpable ?? 0),
     card('absueltos', (data.juicios?.inocente ?? 0) + (data.juicios?.sin_quorum ?? 0)),

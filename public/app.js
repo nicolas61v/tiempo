@@ -1,8 +1,9 @@
 import { Clock } from './clock.js';
-import { CATEGORIES, lifeSeconds, dayValue, catText, MONEY_CATS } from './economy.js';
+import { CATEGORIES, lifeSeconds, dayValue, catText, MONEY_CATS, BIO_MAX, ACCUSE_POWER } from './economy.js';
 import { T, LANG, LOCALE, saveLang, translatePage } from './i18n.js';
 import qrcode from './vendor/qrcode.mjs';
 import { canScan, startScan } from './scan.js';
+import { COUNTRIES, flagOf } from './countries.js';
 
 const $ = (sel) => document.querySelector(sel);
 const DAY = 86_400, HOUR = 3_600, MIN = 60, WEEK = 7 * DAY;
@@ -26,6 +27,24 @@ const MAX_AMOUNT = { money: 10_000_000_000, hours: 24 };
 const SHARE_CHIPS = [300, 900, 3_600, 21_600, DAY, WEEK];
 // La economía es en pesos colombianos (1 día = salario mínimo de Colombia), en cualquier idioma.
 const cop = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'COP', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 });
+const usdFmt = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const USD_COP = Number(meta('usd-cop')) || 4000;
+const CHIPS_USD = [5, 10, 20, 50, 100, 500];
+/** Moneda de la persona: por dentro todo es en pesos colombianos; quien usa dólares los ve convertidos. */
+const usesUsd = () => S?.currency === 'USD';
+/** Un monto guardado en pesos, en la moneda de la persona. */
+const fmtMoney = (pesos) => (usesUsd() ? usdFmt.format(pesos / USD_COP) : cop.format(pesos));
+/** Lo que escribe la persona (en su moneda) → pesos, y al revés para mostrarlo en el campo. */
+const toPesos = (v) => (usesUsd() ? Math.round(v * USD_COP) : Math.round(v));
+const fromPesos = (p) => (usesUsd() ? Math.round(p / USD_COP) : p);
+const regionNames = (() => {
+  try {
+    return new Intl.DisplayNames([LANG], { type: 'region' });
+  } catch {
+    return null;
+  }
+})();
+const countryName = (c) => (c ? regionNames?.of(c) || c : '');
 const num = new Intl.NumberFormat(LOCALE);
 const usd = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
 const priceOf = (product) => (PRICES[product] ? usd.format(PRICES[product] / 100) : '');
@@ -125,7 +144,7 @@ function fmtLong(sec) {
 }
 function amountOf(category, amount) {
   const unit = CATEGORIES[category]?.unit;
-  return unit === 'money' ? cop.format(amount) : unit === 'seconds' ? fmtDur(amount, 3) : fmtDur(amount * HOUR);
+  return unit === 'money' ? fmtMoney(amount) : unit === 'seconds' ? fmtDur(amount, 3) : fmtDur(amount * HOUR);
 }
 const labelOf = (x) => (CATEGORIES[x.category] ? cText(CATEGORIES[x.category]).label : T(x.seconds > 0 ? 'earned' : 'spent'));
 function detailOf(x) {
@@ -145,6 +164,8 @@ function noteOf(x) {
   if ((m = /^Código (\w+)$/.exec(note))) return T('note.code', { code: m[1] });
   if ((m = /^Regalo de (.*)$/s.exec(note))) return T('note.gift', { name: who(m[1]) });
   if ((m = /^Juicio #(\d+)$/.exec(note))) return T('note.trial', { n: m[1] });
+  if ((m = /^Falta (\d+)$/.exec(note))) return T('note.strike', { n: m[1] });
+  if ((m = /^Absuelto #(\d+)$/.exec(note))) return T('note.absolved', { n: m[1] });
   return note;
 }
 // Fechas: 'es' a secas (24 h, como siempre) o 'en' (inglés de EE. UU.).
@@ -211,7 +232,10 @@ async function api(method, path, body) {
   const mid = (t0 + Date.now()) / 2;
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data.message || T('net.failed')), { status: res.status, code: data.error });
+  if (!res.ok) {
+    if (data.error === 'explicit') setTimeout(punished, 0); // subió contenido sexual: perdió tiempo
+    throw Object.assign(new Error(data.message || T('net.failed')), { status: res.status, code: data.error });
+  }
   const snap = data.state || (data.expiresAt && data.lifeNo ? data : null);
   if (snap?.now) {
     // Corrige la hora del teléfono, sin saltos por ruido de red.
@@ -308,9 +332,11 @@ function renderExtras() {
   banner.hidden = !S.trial;
   if (S.trial) {
     const left = fmtDur(Math.max(0, S.trial.until - now()) / 1000, 2);
-    banner.textContent = T(S.trial.phase === 'defensa' ? 'trial.bannerDefend' : 'trial.bannerVote', { x: left });
+    const key = S.trial.phase === 'votacion' ? 'trial.bannerVote' : S.trial.defended ? 'trial.bannerWaiting' : 'trial.bannerDefend';
+    banner.textContent = T(key, { x: left });
   }
-  $('#rank-dot').hidden = !(S.jury > 0 || (S.trial && S.trial.phase === 'defensa'));
+  $('#rank-dot').hidden = !(S.jury > 0 || (S.trial && S.trial.phase === 'citacion' && !S.trial.defended));
+  $('#country-banner').hidden = !alive || Boolean(S.country); // quien venía de antes: que elija su país
   renderRevive();
 }
 
@@ -508,8 +534,8 @@ function formula(c, amount) {
   const what = cText(c).label.toLowerCase();
   if (c.unit === 'money') {
     return amount
-      ? `${cop.format(amount)}${rate} ÷ ${cop.format(DAY_VALUE)} ${T('formula.money')}`
-      : T('formula.base', { dv: cop.format(DAY_VALUE) });
+      ? `${fmtMoney(amount)}${rate} ÷ ${fmtMoney(DAY_VALUE)} ${T('formula.money')}`
+      : T('formula.base', { dv: fmtMoney(DAY_VALUE) });
   }
   return amount
     ? T('formula.hours', { dur: fmtDur(amount * HOUR), what, rate })
@@ -558,8 +584,14 @@ function renderTx() {
 
   $('#tx-money-wrap').hidden = !money;
   const input = $('#tx-money');
-  if (money && document.activeElement !== input) input.value = txAmount ? num.format(txAmount) : '';
-  $('#tx-chips').replaceChildren(...CHIPS[c.unit].map((v) => button(money ? moneyChip(v) : `+${fmtDur(v * HOUR)}`, { v })));
+  if (money && document.activeElement !== input) input.value = txAmount ? num.format(fromPesos(txAmount)) : '';
+  input.setAttribute('aria-label', T(usesUsd() ? 'a.dollars' : 'a.pesosAmount'));
+  const chips = !money
+    ? CHIPS.hours.map((v) => [`+${fmtDur(v * HOUR)}`, v])
+    : usesUsd()
+      ? CHIPS_USD.map((d) => [`+${usdFmt.format(d)}`, toPesos(d)])
+      : CHIPS.money.map((v) => [moneyChip(v), v]);
+  $('#tx-chips').replaceChildren(...chips.map(([label, v]) => button(label, { v })));
 
   const secs = lifeSeconds(txCat, txAmount, MIN_WAGE);
   const amount = $('#tx-amount');
@@ -976,6 +1008,10 @@ async function sendDay(e) {
       ? await api('POST', `/api/day/${day.id}/reply`, { text, images })
       : await api('POST', '/api/day', { text, images, tz: userTz() });
     day = r.day;
+    if (r.strike) {
+      punished(false);
+      setTimeout(() => toast(T('strike.toast', { lost: fmtDur(r.strike.penalty, 2), next: fmtLong(r.strike.next) })), 400);
+    }
     saved.day = day;
     if (r.state) apply(r.state);
     else persist();
@@ -1006,7 +1042,7 @@ async function acceptDay() {
       clock.flash(r.net > 0 ? 'gain' : 'loss');
       vibrate(r.net > 0 ? 18 : [12, 50, 12]);
     }
-    toast(r.trusted ? T('day.trusted') : r.net ? T('ofLife', { x: signed(r.net) }) : T('day.closed'));
+    toast(r.summoned ? T('day.summoned') : r.trusted ? T('day.trusted') : r.net ? T('ofLife', { x: signed(r.net) }) : T('day.closed'));
   } catch (err) {
     if (err.status === 404 || err.code === 'closed') closeDay(), renderDay();
     toast(err.message);
@@ -1273,8 +1309,16 @@ const shortDate = new Intl.DateTimeFormat(LANG, { day: 'numeric', month: 'short'
 /** Con signo y dos unidades ("+3d 10h"): en listas angostas tres unidades parten la línea. */
 const signed2 = (s) => (s ? `${s > 0 ? '+' : '−'}${fmtDur(s, 2)}` : '0m');
 
+/** Perdió tiempo por subir contenido sexual: el reloj se sacude y se trae el estado nuevo. */
+function punished(sync = true) {
+  clock.flash('loss');
+  vibrate([40, 80, 40]);
+  if (sync) refresh();
+}
+
 function tags(x) {
   const out = [];
+  if (x.strikes) out.push(['bad', T('badge.strikes', { n: x.strikes })]);
   if (x.plus) out.push(['plus', T('badge.plus')]);
   if (x.verified) out.push(['ok', T('badge.verified')]);
   if (x.onTrial) out.push(['warn', T('badge.onTrial')]);
@@ -1295,6 +1339,7 @@ function renderRankShell() {
   $('#rank-join').hidden = !join;
   if (join) {
     $('#rank-name').hidden = Boolean(S?.nickname);
+    $('#rank-bio').hidden = Boolean(S?.bio);
     $('#rank-join-note').textContent = S?.bannedUntil ? T('rank.banned', { date: shortDate.format(S.bannedUntil) }) : '';
     $('#rank-join-btn').disabled = Boolean(S?.bannedUntil);
   }
@@ -1327,7 +1372,9 @@ function rankRow(r, board) {
   b.type = 'button';
   b.dataset.person = r.id;
   const who = el('span', 'who');
-  who.append(el('span', 'name', r.you ? `${r.name} · ${T('you')}` : r.name));
+  const flag = flagOf(r.country);
+  who.append(el('span', 'name', `${flag ? `${flag} ` : ''}${r.you ? `${r.name} · ${T('you')}` : r.name}`));
+  if (r.bio) who.append(el('span', 'bio', r.bio)); // a qué se dedica
   const sub = el('span', 'sub');
   sub.append(el('span', `lg lg-${r.league}`, leagueName(r.league)), ...tags(r));
   who.append(sub);
@@ -1349,9 +1396,12 @@ function renderBoard(data) {
 }
 
 function trialLine(t) {
-  if (t.phase === 'cerrado') return T(`t.v.${t.verdict}`);
+  if (t.phase === 'cerrado') return T(`t.v.${t.verdict}`) + (t.verdict === 'culpable' && !t.defended ? T('t.noDefended') : '');
   const left = fmtDur(Math.max(0, t.until - now()) / 1000, 2);
-  return T(t.phase === 'defensa' ? 't.sDefense' : 't.sVote', { x: left });
+  if (t.phase === 'citacion') {
+    return t.byGuardian ? T('t.sGuardian', { x: left }) : T('t.sSummon', { x: left, n: t.summons.people, p: t.summons.points, need: t.needed });
+  }
+  return T('t.sVote', { x: left, n: t.voters });
 }
 
 function trialRow(t) {
@@ -1365,10 +1415,11 @@ function trialRow(t) {
   who.append(el('span', 'sub', [trialLine(t), reasons].filter(Boolean).join(' — ')));
   let right = '';
   let cls = '';
-  if (t.phase === 'cerrado') right = `${t.guilty}–${t.innocent}`;
+  if (t.phase === 'cerrado') right = t.verdict === 'archivado' ? '' : `${t.guilty}–${t.innocent}`;
   else if (t.mine) (right = T('t.you')), (cls = ' warn');
-  else if (t.myVote) right = T('t.voted');
-  else if (t.canVote) (right = T('t.voteNow')), (cls = ' up');
+  else if (t.voted || (t.phase === 'citacion' && t.summoned)) right = T('t.voted');
+  else if (t.canVote || t.canSummon) (right = T(t.canVote ? 't.voteNow' : 't.summonNow')), (cls = ' up');
+  else right = T('t.stakeShort', { x: fmtDur(t.stake, 1) });
   b.append(el('span', 'pos', `#${t.id}`), who, el('span', `score small${cls}`, right));
   li.append(b);
   return li;
@@ -1396,6 +1447,15 @@ async function joinRank() {
       apply((await api('PATCH', '/api/me', { nickname: name })).state);
     }
     apply((await api('PATCH', '/api/me', { ranked: true })).state);
+    const bio = $('#rank-bio').value.trim();
+    if (bio && !S.bio) {
+      try {
+        apply((await api('PATCH', '/api/me', { bio })).state); // lo revisa el Guardián
+        $('#rank-bio').value = '';
+      } catch (err) {
+        setTimeout(() => toast(err.message), 3400);
+      }
+    }
     vibrate(15);
     toast(T('rank.joined'));
     renderRankShell();
@@ -1474,6 +1534,11 @@ function renderProfile() {
   lg.className = `league-badge lg-${p.league}`;
   lg.textContent = leagueName(p.league);
   $('#p-badges').replaceChildren(...tags(p));
+  const bio = $('#p-bio');
+  bio.hidden = !p.bio;
+  bio.textContent = p.bio ? `“${p.bio}”` : '';
+  const days = Math.floor((p.myLived || 0) / 86_400);
+  $('#acc-power').textContent = T('acc.power', { p: p.myPower || 0, days, need: ACCUSE_POWER[0].days });
   $('#p-left').textContent = fmtDur(p.remaining, 2);
   $('#p-week').textContent = signed2(p.week);
   $('#p-week').className = `stat-v ${p.week > 0 ? 'up' : p.week < 0 ? 'down' : ''}`;
@@ -1484,12 +1549,20 @@ function renderProfile() {
   renderRecent($('#p-recent'), p.recent);
   $('#p-empty').hidden = p.recent.length > 0;
 
-  // Pedir juicio: solo si se puede; si no, por qué (salvo en su propio perfil).
+  const country = $('#p-country');
+  country.hidden = !p.country;
+  country.textContent = p.country ? `${flagOf(p.country)} ${countryName(p.country)}` : '';
+  // Citar a juicio (o sumarse a su citación): solo si se puede; si no, por qué (salvo en su propio perfil).
+  $('#acc-stake').textContent = p.trial
+    ? T('acc.joining', { n: p.trial.people, p: p.trial.points, need: p.trial.needed, x: fmtDur(p.stake, 2) })
+    : T('acc.stake', { x: fmtDur(p.stake, 2) });
+  $('#acc-send').textContent = T(p.trial ? 'acc.join' : 'acc.send');
+  $('#p-accuse-open').textContent = T(p.trial ? 'acc.openJoin' : 'acc.openNew');
   const note = $('#p-note');
   const reason = p.you ? null : p.accuseProblem;
   $('#p-accuse-open').hidden = p.you || !p.canAccuse || !$('#p-accuse').hidden;
   note.hidden = !reason || reason === 'own';
-  if (reason) note.textContent = T(`acc.no.${reason}`);
+  if (reason) note.textContent = T(`acc.no.${reason}`, { days, need: ACCUSE_POWER[0].days });
   $('#acc-reasons').replaceChildren(
     ...['ingresos', 'imposible', 'cuentas', 'otro'].map((r) => {
       const b = button(T(`reason.${r}`), { reason: r });
@@ -1538,10 +1611,26 @@ function renderTrial() {
   const t = trialView;
   if (!t) return;
   $('#t-title').textContent = t.mine ? T('t.titleMine') : T('t.title', { name: t.name || T('someone') });
-  $('#t-phase').textContent =
-    t.phase === 'cerrado'
-      ? T(`t.v.${t.verdict}`) + (t.verdict === 'culpable' && t.penalty ? T('t.penalty', { x: fmtDur(t.penalty, 2) }) : '') + ` (${t.guilty}–${t.innocent})`
-      : trialLine(t);
+  $('#t-phase').textContent = trialLine(t);
+  $('#t-stake').textContent = T('t.stake', { x: fmtDur(t.stake, 2) });
+  const guardian = $('#t-guardian');
+  guardian.hidden = !t.byGuardian;
+  guardian.textContent = t.byGuardian ? T('t.byGuardian', { r: t.byGuardian }) : '';
+  // día 1: cuántos lo quieren llevar a juicio (público); día 2: cuántos votaron (nunca qué); al cerrar, los votos
+  const count = $('#t-count');
+  count.textContent =
+    t.phase === 'citacion'
+      ? t.byGuardian
+        ? T('t.countGuardian', { n: t.summons.people })
+        : T('t.countSummon', { n: t.summons.people, p: t.summons.points, need: t.needed })
+      : t.phase === 'votacion'
+        ? T('t.countVoters', { n: t.voters })
+        : t.verdict === 'archivado'
+          ? T('t.countArchived', { n: t.summons.people, p: t.summons.points, need: t.needed })
+          : t.defended
+            ? T('t.revealed', { g: t.guilty, i: t.innocent }) + (t.penalty ? T('t.penalty', { x: fmtDur(t.penalty, 2) }) : '')
+            : T('t.noDefenseGuilty', { x: fmtDur(t.penalty || 0, 2) });
+  $('#t-summon').hidden = !t.canSummon;
   $('#t-acc').replaceChildren(
     ...t.accusations.map((a) => {
       const li = el('li');
@@ -1550,7 +1639,7 @@ function renderTrial() {
       return li;
     }),
   );
-  const defending = t.mine && t.phase === 'defensa';
+  const defending = t.mine && t.phase === 'citacion' && !t.defended;
   $('#t-defense').hidden = defending;
   $('#t-defense').textContent = t.defense ? `“${t.defense}”` : T('t.noDefense');
   $('#t-defend').hidden = !defending;
@@ -1561,12 +1650,47 @@ function renderTrial() {
     renderRecent($('#t-recent'), p.recent);
   }
   $('#t-profile').hidden = !p?.id || t.mine;
+  const rv = t.review;
+  $('#t-review').hidden = !rv;
+  if (rv) {
+    const sup = $('#t-supports');
+    sup.className = `tag ${rv.supports === 'si' ? 'ok' : rv.supports === 'parcial' ? 'warn' : 'bad'}`;
+    sup.textContent = T(`t.supports.${rv.supports}`);
+    $('#t-review-text').textContent = rv.summary || T('t.noSummary');
+  }
+  const proofs = $('#t-proofs');
+  proofs.hidden = !t.proofs?.length;
+  proofs.replaceChildren(
+    ...(t.proofs || []).map((im, i) => {
+      const img = document.createElement('img');
+      img.src = `data:${im.media_type};base64,${im.data}`;
+      img.alt = T('photoN', { n: i + 1 });
+      img.loading = 'lazy';
+      return img;
+    }),
+  );
+  const pnote = $('#t-proofs-note');
+  const proofMsg = t.proofCount && !t.proofs ? T('t.proofsHidden', { n: t.proofCount }) : rv && !t.proofCount && t.phase === 'cerrado' ? T('t.proofsDeleted') : '';
+  pnote.hidden = !proofMsg;
+  pnote.textContent = proofMsg;
+  renderDefensePhotos();
   $('#t-vote').hidden = !t.canVote;
   const note = $('#t-note');
-  const msg = t.myVote ? T('t.youVoted', { v: T(`t.${t.myVote}`) }) : !t.canVote && t.problem && t.problem !== 'phase' ? T(`t.no.${t.problem}`) : '';
+  const msg =
+    t.phase === 'votacion' && t.voted
+      ? T('t.votedSecret')
+      : t.phase === 'votacion' && !t.canVote && t.problem && t.problem !== 'phase'
+        ? T(`t.no.${t.problem}`)
+        : t.phase === 'citacion' && t.mine && t.defended
+          ? T('t.defendedWait')
+          : t.phase === 'citacion' && !t.mine && t.summoned
+            ? T('t.youSummoned')
+            : t.phase === 'citacion' && !t.mine && !t.canSummon && t.summonProblem && !['already', 'own'].includes(t.summonProblem)
+              ? T(`acc.no.${t.summonProblem}`, { days: Math.floor((S?.lived || 0) / 86_400), need: ACCUSE_POWER[0].days })
+              : '';
   note.hidden = !msg;
   note.textContent = msg;
-  $('#t-rules').textContent = T('t.rules', { q: t.rules.quorum });
+  $('#t-rules').textContent = T('t.rules', { q: t.rules.quorum, x: fmtLong(t.rules.reward) });
 }
 
 async function castVote(vote) {
@@ -1581,7 +1705,7 @@ async function castVote(vote) {
   try {
     await api('POST', `/api/trials/${trialView.id}/vote`, { vote });
     vibrate(15);
-    toast(T('t.thanks'));
+    toast(T('t.thanks')); // y nunca más se le muestra qué votó: es secreto
     trialView = await api('GET', `/api/trials/${trialView.id}`);
     renderTrial();
     refresh();
@@ -1591,19 +1715,66 @@ async function castVote(vote) {
   }
 }
 
+let defensePhotos = [];
+
+function renderDefensePhotos() {
+  $('#t-thumbs').replaceChildren(
+    ...defensePhotos.map((p, i) => {
+      const t = el('div', 'thumb');
+      const img = document.createElement('img');
+      img.src = p.url;
+      img.alt = T('photoN', { n: i + 1 });
+      const x = button('×', { rm: i });
+      x.setAttribute('aria-label', T('removePhoto'));
+      t.append(img, x);
+      return t;
+    }),
+  );
+}
+
+async function addDefensePhotos(e) {
+  const files = [...e.target.files];
+  e.target.value = '';
+  const room = 3 - defensePhotos.length;
+  if (files.length > room) toast(T('t.maxProofs'));
+  for (const f of files.slice(0, room)) {
+    try {
+      defensePhotos.push(await shrink(f));
+    } catch {
+      toast(T('badPhoto'));
+    }
+  }
+  renderDefensePhotos();
+}
+
 async function sendDefense(e) {
   e.preventDefault();
   const text = $('#t-defend-text').value.trim();
   if (!text || !trialView) return toast(T('t.writeDefense'));
+  if (!defensePhotos.length) return toast(T('t.needProofs'));
+  const btn = $('#t-defend-btn');
+  btn.disabled = true;
+  btn.textContent = T('t.checking');
   try {
-    const r = await api('POST', `/api/trials/${trialView.id}/defense`, { text });
+    const images = defensePhotos.map(({ media_type, data }) => ({ media_type, data }));
+    const r = await api('POST', `/api/trials/${trialView.id}/defense`, { text, images });
     apply(r.state);
     $('#t-defend-text').value = '';
+    defensePhotos.forEach((p) => URL.revokeObjectURL(p.url));
+    defensePhotos = [];
     toast(T('t.defended'));
     trialView = await api('GET', `/api/trials/${trialView.id}`);
     renderTrial();
   } catch (err) {
+    if (err.code === 'explicit') {
+      defensePhotos.forEach((p) => URL.revokeObjectURL(p.url));
+      defensePhotos = [];
+      renderDefensePhotos();
+    }
     toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = T('t.defendBtn');
   }
 }
 
@@ -1780,6 +1951,60 @@ async function handlePayReturn() {
   toast(T('pay.slow'));
 }
 
+/* ───────── país y moneda ───────── */
+
+/** Adivina el país por el idioma del teléfono (es-CO → CO) o, si no, por su zona horaria. */
+function guessCountry() {
+  for (const l of navigator.languages || [navigator.language]) {
+    const m = /-([A-Z]{2})$/i.exec(l || '');
+    if (m && COUNTRIES.includes(m[1].toUpperCase())) return m[1].toUpperCase();
+  }
+  const tz = userTz();
+  const byTz = { 'America/Bogota': 'CO', 'America/Mexico_City': 'MX', 'America/Lima': 'PE', 'America/Santiago': 'CL', 'America/Argentina/Buenos_Aires': 'AR', 'America/Caracas': 'VE', 'America/Guayaquil': 'EC', 'Europe/Madrid': 'ES', 'America/New_York': 'US', 'America/Los_Angeles': 'US', 'America/Chicago': 'US' };
+  return byTz[tz] || '';
+}
+
+function fillCountries(select, selected) {
+  if (!select.options.length) {
+    const sorted = COUNTRIES.map((c) => [c, countryName(c)]).sort((a, b) => a[1].localeCompare(b[1], LANG));
+    const first = new Option(T('country.pick'), '');
+    first.disabled = true;
+    select.append(first, ...sorted.map(([c, name]) => new Option(`${flagOf(c)} ${name}`, c)));
+  }
+  select.value = selected || '';
+}
+
+function renderCountryCurrency() {
+  fillCountries($('#country-select'), S?.country || '');
+  for (const b of document.querySelectorAll('#currency-seg button')) b.setAttribute('aria-checked', String(b.dataset.cur === (S?.currency || 'COP')));
+  $('#currency-status').textContent = T('currency.sub', { dv: fmtMoney(DAY_VALUE) });
+}
+
+async function setCountry(e) {
+  const country = e.target.value;
+  if (!country || !S || country === S.country) return;
+  try {
+    apply((await api('PATCH', '/api/me', { country })).state);
+    toast(T('country.saved', { name: countryName(country) }));
+    renderCountryCurrency();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function setCurrency(e) {
+  const cur = e.target.closest('button[data-cur]')?.dataset.cur;
+  if (!cur || !S || cur === S.currency) return;
+  try {
+    apply((await api('PATCH', '/api/me', { currency: cur })).state);
+    renderCountryCurrency();
+    $('#rate-text').textContent = T('rate', { dv: fmtMoney(DAY_VALUE), mw: fmtMoney(MIN_WAGE) });
+    toast(T('currency.saved', { c: cur }));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 /* ───────── ciclo de vida ───────── */
 
 const KEY_IN_TEXT = /tk_[\w-]{16,}/;
@@ -1794,13 +2019,25 @@ async function start() {
     $('#link-input').value = pasted[0];
     return toast(T('isKey'));
   }
+  const country = $('#intro-country').value;
+  if (!country) {
+    $('#intro-country').focus();
+    return toast(T('country.need'));
+  }
+  const bio = $('#intro-bio').value.trim();
   const b = $('#btn-start');
   b.disabled = true;
   try {
-    const r = await api('POST', '/api/session', { nickname: name, deviceId: deviceId() });
+    const r = await api('POST', '/api/session', { nickname: name, deviceId: deviceId(), country });
     saved.token = r.token;
     apply(r.state);
     vibrate(30);
+    if (bio) {
+      // lo revisa el Guardián; si no pasa, el reloj igual queda creado
+      api('PATCH', '/api/me', { bio })
+        .then((x) => apply(x.state))
+        .catch((err) => setTimeout(() => toast(err.message), 4000));
+    }
     openKeySheet(true); // lo primero: que sepa que esa llave es su identificador (el regalo se reclama al cerrarla)
   } catch (err) {
     toast(err.message);
@@ -1981,8 +2218,11 @@ const maskKey = (k) => (k ? `${k.slice(0, 7)}••••••${k.slice(-4)}` :
 function openSettings(focusLink = false) {
   $('#key-text').textContent = maskKey(saved.token);
   $('#name-input').value = S?.nickname || '';
+  $('#bio-input').value = S?.bio || '';
+  renderBioCount();
   renderNameCount();
-  $('#rate-text').textContent = T('rate', { dv: cop.format(DAY_VALUE), mw: cop.format(MIN_WAGE) });
+  $('#rate-text').textContent = T('rate', { dv: fmtMoney(DAY_VALUE), mw: fmtMoney(MIN_WAGE) });
+  renderCountryCurrency();
   renderLang();
   $('#foot').textContent = `Tiempo · ${VERSION}`;
   renderInstall();
@@ -2096,6 +2336,34 @@ function keyClosed() {
   keyIsWelcome = false;
   if (giftCode) claimGift();
   else toast(T('started'));
+}
+
+function renderBioCount() {
+  $('#bio-count').textContent = `${graphemeCount($('#bio-input').value.trim())}/${BIO_MAX}`;
+}
+
+/** "¿A qué te dedicas?": lo revisa el Guardián antes de publicarlo. */
+async function saveBio(e) {
+  e.preventDefault();
+  const input = $('#bio-input');
+  const btn = $('#bio-save');
+  const bio = input.value.trim();
+  if (bio === (S?.bio || '')) return input.blur();
+  if (KEY_IN_TEXT.test(bio)) return toast(T('name.isKey'));
+  btn.disabled = true;
+  btn.textContent = T('bio.checking');
+  try {
+    apply((await api('PATCH', '/api/me', { bio })).state);
+    input.value = S.bio;
+    renderBioCount();
+    input.blur();
+    toast(S.bio ? T('bio.saved') : T('bio.removed'));
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = T('bio.save');
+  }
 }
 
 function renderNameCount() {
@@ -2259,8 +2527,8 @@ $('#tx-chips').addEventListener('click', (e) => {
 });
 $('#tx-money').addEventListener('input', (e) => {
   const digits = e.target.value.replace(/\D/g, '').slice(0, 11);
-  txAmount = Number(digits) || 0;
-  e.target.value = digits ? num.format(txAmount) : '';
+  txAmount = toPesos(Number(digits) || 0); // se escribe en su moneda; por dentro, pesos
+  e.target.value = digits ? num.format(Number(digits)) : '';
   renderTx();
 });
 $('#tx-clear').addEventListener('click', () => {
@@ -2374,6 +2642,14 @@ $('#sheet-profile').addEventListener('close', () => {
 $('#t-guilty').addEventListener('click', () => castVote('culpable'));
 $('#t-innocent').addEventListener('click', () => castVote('inocente'));
 $('#t-defend').addEventListener('submit', sendDefense);
+$('#t-file').addEventListener('change', addDefensePhotos);
+$('#t-thumbs').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-rm]');
+  if (!b) return;
+  const [p] = defensePhotos.splice(Number(b.dataset.rm), 1);
+  URL.revokeObjectURL(p.url);
+  renderDefensePhotos();
+});
 $('#t-profile').addEventListener('click', () => trialView?.profile?.id && openProfile(trialView.profile.id));
 
 // Tienda
@@ -2398,6 +2674,21 @@ $('#store-gifts').addEventListener('click', (e) => {
 
 // Ajustes
 $('#btn-ranked').addEventListener('click', toggleRanked);
+$('#country-select').addEventListener('change', setCountry);
+$('#currency-seg').addEventListener('click', setCurrency);
+$('#country-banner').addEventListener('click', () => {
+  openSettings();
+  setTimeout(() => $('#country-select').focus(), 380);
+});
+$('#t-summon').addEventListener('click', () => {
+  const id = trialView?.publicId;
+  if (!id) return;
+  closeSheet($('#sheet-trial'));
+  setTimeout(async () => {
+    await openProfile(id);
+    $('#p-accuse-open').click(); // directo al formulario para sumarse a la citación
+  }, 260);
+});
 $('#btn-push').addEventListener('click', togglePush);
 $('#remind-seg').addEventListener('click', setRemind);
 $('#lang-seg').addEventListener('click', setLang);
@@ -2423,6 +2714,8 @@ $('#sheet-key').addEventListener('close', () => $('#key-qr-img').replaceChildren
 $('#k-done').addEventListener('click', keyDone);
 $('#sheet-key').addEventListener('close', keyClosed);
 $('#name-form').addEventListener('submit', saveName);
+$('#bio-form').addEventListener('submit', saveBio);
+$('#bio-input').addEventListener('input', renderBioCount);
 $('#name-input').addEventListener('input', renderNameCount);
 $('#intro-name').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') start();
@@ -2449,6 +2742,7 @@ addEventListener('online', refresh);
 /* ───────── arranque ───────── */
 
 translatePage({ n: DAYS_PER_DAY });
+fillCountries($('#intro-country'), guessCountry());
 render(); // pinta al instante con lo guardado; luego sincroniza
 registerSW();
 navigator.storage?.persist?.().catch(() => {});

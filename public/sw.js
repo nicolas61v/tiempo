@@ -8,6 +8,7 @@ const SHELL = [
   '/i18n.js',
   '/clock.js',
   '/economy.js',
+  '/countries.js',
   '/scan.js',
   '/vendor/qrcode.mjs',
   '/fonts/inter-latin-200-normal.woff2',

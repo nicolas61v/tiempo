@@ -629,7 +629,7 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 .lg { font-weight: 650; color: var(--lg); }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tags:empty { display: none; }
-.tag { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--muted); background: rgba(255, 255, 255, 0.07); }
+.tag { white-space: nowrap; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--muted); background: rgba(255, 255, 255, 0.07); }
 .tag.plus { color: #e2a6ff; background: color-mix(in srgb, #e2a6ff 14%, transparent); }
 .tag.ok { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .tag.warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
@@ -685,6 +685,31 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 .gift-btn .chev { flex: none; font-size: 13px; font-weight: 650; color: var(--green); }
 .gift-qr { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 4px 0 16px; }
 .money-limit { margin-top: -6px; }
+
+/* perfil: "¿a qué te dedicas?" */
+.bio-area { min-height: 64px; height: auto; }
+.bio-line { margin-top: -6px; font-size: 15px; font-style: italic; color: var(--ink); overflow-wrap: anywhere; }
+.rank-btn .bio { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag.bad { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+.power { color: var(--ink); font-weight: 600; }
+
+/* registro y perfil: país */
+.country-field { appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; color: var(--ink); }
+.country-field:invalid { color: var(--faint); }
+select.field { background-color: var(--raise); }
+select.field option { background: var(--sheet); color: var(--ink); }
+.intro-hint { max-width: 36ch; margin-top: -2px; color: var(--faint); }
+.trial-banner.soft { border-color: var(--line); background: var(--raise); font-weight: 500; }
+
+/* juicio: lo que está en juego y cómo va el día */
+.stake-box { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent); background: color-mix(in srgb, var(--amber) 7%, transparent); }
+.stake { font-size: 18px; font-weight: 650; color: var(--amber); font-variant-numeric: tabular-nums; }
+
+/* juicio: lo que vio el Guardián y las pruebas para el jurado */
+.review { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--raise); }
+.review .tag { vertical-align: 1px; }
+.proofs { display: flex; flex-direction: column; gap: 10px; }
+.proofs img { display: block; width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--line); }
 .money-limit.warn { color: var(--amber); }
 
 @media (prefers-reduced-motion: reduce) {
