@@ -25,7 +25,7 @@ export const CURRENCY = 'usd';
 export const PRODUCTS = {
   plus: {
     mode: 'subscription',
-    price: 299,
+    price: 499,
     name: { es: 'Tiempo Plus (mensual)', en: 'Tiempo Plus (monthly)' },
     desc: {
       es: '15 charlas al día con el Guardián, 3 réplicas, el Guardián más fino y 1 Revivir gratis al mes.',
@@ -34,19 +34,19 @@ export const PRODUCTS = {
   },
   dia: {
     mode: 'payment',
-    price: 99,
-    name: { es: '+1 día de vida', en: '+1 day of life' },
+    price: 299,
+    name: { es: '+4 días de vida', en: '+4 days of life' },
     desc: { es: 'Máximo uno por semana. No cuenta en el ranking.', en: "Up to one a week. Doesn't count in the ranking." },
   },
   regalo: {
     mode: 'payment',
-    price: 399,
+    price: 499,
     name: { es: 'Regalo: 1 semana de vida', en: 'Gift: 1 week of life' },
     desc: { es: 'Un código y un QR para regalarle una semana a quien quieras.', en: 'A code and a QR to give a week to anyone you want.' },
   },
   revivir: {
     mode: 'payment',
-    price: 99,
+    price: 499,
     name: { es: 'Revivir', en: 'Revive' },
     desc: { es: 'Vuelves con 1 día y conservas tu vida, tu récord y tu historial.', en: 'Come back with 1 day and keep your life, record and history.' },
   },

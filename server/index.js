@@ -18,7 +18,13 @@ if (config.onRailway && !config.hasVolume) {
   log.warn('⚠ Sin volumen: la base se borra en cada deploy. Agrega un volumen al servicio (mount path /data).');
 }
 
-const store = openStore({ dir: config.dataDir, initialSeconds: config.initialSeconds, minWage: config.minWage });
+const store = openStore({
+  dir: config.dataDir,
+  initialSeconds: config.initialSeconds,
+  minWage: config.minWage,
+  usMinWageHourly: config.usMinWageHourly,
+  usdCop: config.usdCop,
+});
 if (store.backupFile) log.info(`copia de seguridad antes de migrar: ${store.backupFile}`);
 const push = createPush(store, { ...config.vapid, log });
 const judge = createJudge({ log, usdCop: config.usdCop });
@@ -48,6 +54,7 @@ setInterval(maintain, 15_000).unref();
 const site = loadStatic(path.join(config.root, 'public'), {
   __INITIAL__: String(config.initialSeconds),
   __MIN_WAGE__: String(config.minWage),
+  __MIN_WAGE_US__: String(config.usMinWageHourly),
   __DAYS_PER_DAY__: String(DAYS_PER_DAY),
   __PAYMENTS__: payments.enabled ? '1' : '0',
   __PRICES__: Object.entries(PRODUCTS).map(([k, pr]) => `${k}=${pr.price}`).join(';'),

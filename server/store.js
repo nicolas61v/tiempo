@@ -3,7 +3,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  CATEGORIES, lifeSeconds, catText, dayValue, leagueOf, MONEY, MONEY_CATS, HOUR_CATS, HOURS_PER_DAY,
+  CATEGORIES, lifeSeconds, catText, dayValue, wageFor, leagueOf, MONEY, MONEY_CATS, HOUR_CATS, HOURS_PER_DAY,
   BIO_MAX, strikeSeconds,
 } from '../public/economy.js';
 import { cleanCountry } from '../public/countries.js';
@@ -67,8 +67,8 @@ export class AppError extends Error {
 }
 
 /**
- * Moneda en la que cada quien ve y escribe la plata. Por dentro todo es en pesos colombianos (una sola economía:
- * 1 día de vida = 1 salario mínimo diario de Colombia); quien usa dólares los ve convertidos con USD_COP.
+ * Moneda en la que cada quien ve y escribe la plata. Por dentro todo es en pesos colombianos; quien usa dólares
+ * los ve convertidos con USD_COP. 1 día de vida = 1 día de salario mínimo del país donde vive (wageFor en economy.js).
  */
 export const CURRENCIES = ['COP', 'USD'];
 export const cleanCurrency = (c) => (CURRENCIES.includes(c) ? c : '');
@@ -451,7 +451,9 @@ function migrate(db) {
   }
 }
 
-export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_905, now = Date.now } = {}) {
+export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_905, usMinWageHourly = 14, usdCop = 4000, now = Date.now } = {}) {
+  /** Salario mínimo mensual (en pesos) del país de la persona: 1 día de vida = ese salario / 30. */
+  const wageOf = (u) => wageFor(u?.country, { co: minWage, usHourly: usMinWageHourly, usdCop });
   let file = ':memory:';
   if (dir) {
     fs.mkdirSync(dir, { recursive: true });
@@ -789,6 +791,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
     const hoursUsed = (cat) => (used[cat] ??= q.usedSince.get(u.id, cat, t - CAP_WINDOW).used);
     let hoursTotal = null;
     const money = moneyState(u, t);
+    const wage = wageOf(u);
     let moneyUsed = money.used;
     return items.map((it) => {
       const c = CATEGORIES[it.category];
@@ -805,15 +808,15 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
       }
       if (MONEY_CATS.includes(it.category)) {
         const room = Math.max(0, (it.proof ? money.cap : money.word) - moneyUsed);
-        if (lifeSeconds(it.category, amount, minWage) > room) {
-          const perPeso = lifeSeconds(it.category, 1_000_000, minWage) / 1_000_000;
+        if (lifeSeconds(it.category, amount, wage) > room) {
+          const perPeso = lifeSeconds(it.category, 1_000_000, wage) / 1_000_000;
           amount = Math.floor(room / perPeso);
           capped = true;
           limit = !it.proof && money.word < money.cap && moneyUsed < money.cap ? 'proof' : 'cap';
         }
-        moneyUsed += lifeSeconds(it.category, amount, minWage);
+        moneyUsed += lifeSeconds(it.category, amount, wage);
       }
-      return { ...it, amount, capped, limit, seconds: lifeSeconds(it.category, amount, minWage) };
+      return { ...it, amount, capped, limit, seconds: lifeSeconds(it.category, amount, wage) };
     });
   }
 
@@ -821,7 +824,7 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   function judgeContext(u, t) {
     const hours = Object.fromEntries(HOUR_CATS.map((k) => [k, q.usedSince.get(u.id, k, t - CAP_WINDOW).used]));
     const money = moneyState(u, t);
-    const pesos = (s) => Math.round((Math.max(0, s) / DAY_S) * dayValue(minWage));
+    const pesos = (s) => Math.round((Math.max(0, s) / DAY_S) * dayValue(wageOf(u)));
     const income = q.incomeStats.get(u.id, t - 30 * DAY_MS);
     return {
       hours,
@@ -920,13 +923,14 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
         throw new AppError(400, 'amount', 'Cantidad inválida', 'Invalid amount');
       }
       amount = c.unit === 'money' ? Math.round(amount) : Math.round(amount * 100) / 100;
-      const seconds = lifeSeconds(category, amount, minWage);
-      if (!seconds || Math.abs(seconds) > MAX_TX) throw new AppError(400, 'amount', 'Cantidad inválida', 'Invalid amount');
       note = typeof note === 'string' ? note.trim().slice(0, NOTE_MAX) : '';
 
       return tx(() => {
         const u = must(id);
         const t = now();
+        // El dinero se convierte con el salario mínimo del país de la persona.
+        const seconds = lifeSeconds(category, amount, wageOf(u));
+        if (!seconds || Math.abs(seconds) > MAX_TX) throw new AppError(400, 'amount', 'Cantidad inválida', 'Invalid amount');
         if (u.expires_at <= t) throw new AppError(409, 'dead', 'Tu tiempo se agotó', 'Your time ran out');
         if (c.cap) {
           const { used } = q.usedSince.get(u.id, category, t - CAP_WINDOW);
@@ -1366,6 +1370,6 @@ export function openStore({ dir, initialSeconds = 7 * 86_400, minWage = 1_750_90
   };
 
   // Pagos (Revivir, +1 día, regalos, Plus) y ranking con juicios: comparten la base y las utilidades de aquí.
-  const ctx = { st, q, tx, must, now, snapshot, hooks, freeCode, alertBand, AppError, isPlus, PLUS, minWage, initialSeconds, livedSeconds, cleanImages, startOfLocalDay };
+  const ctx = { st, q, tx, must, now, snapshot, hooks, freeCode, alertBand, AppError, isPlus, PLUS, wageOf, initialSeconds, livedSeconds, cleanImages, startOfLocalDay };
   return Object.assign(api, payStore(ctx), socialStore(ctx));
 }

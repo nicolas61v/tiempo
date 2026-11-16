@@ -102,7 +102,7 @@ test('checkout: precio, variante y datos en el pago; vuelve al mismo dominio con
   assert.equal(init.headers.Accept, 'application/vnd.api+json');
   const a = body.data.attributes;
   assert.equal(a.custom_price, PRODUCTS.dia.price);
-  assert.equal(a.product_options.name, '+1 día de vida');
+  assert.equal(a.product_options.name, '+4 días de vida');
   assert.equal(a.product_options.redirect_url, `https://time.cc/?pago=ok&ck=${out.ref}`);
   assert.deepEqual(a.checkout_data.custom, { user_id: 'u1', product: 'dia', life_no: '3', ref: out.ref });
   assert.equal(a.expires_at, new Date(t + 6 * HOUR).toISOString());
@@ -138,16 +138,16 @@ test('el mismo checkout pagado dos veces son dos compras; el aviso repetido de u
 
 /* ───────── lo que se compra ───────── */
 
-test('+1 día: se acredita una sola vez aunque el aviso llegue repetido, y no cuenta en el ranking', () => {
+test('+4 días: se acreditan una sola vez aunque el aviso llegue repetido, y no cuentan en el ranking', () => {
   const { store, user } = setup();
   const id = user('Nico');
   const before = left(store, id);
   const p = paid(id, 'dia');
-  assert.equal(store.fulfill(p).seconds, 86_400);
+  assert.equal(store.fulfill(p).seconds, 4 * 86_400);
   assert.equal(store.fulfill(p).duplicate, true); // webhook repetido
-  assert.equal(left(store, id), before + DAY);
+  assert.equal(left(store, id), before + 4 * DAY);
   const row = store.state(id).ledger[0];
-  assert.deepEqual([row.category, row.seconds, row.status], ['compra', 86_400, 'comprado']);
+  assert.deepEqual([row.category, row.seconds, row.status], ['compra', 4 * 86_400, 'comprado']);
   store.setRanked(id, true);
   const r = store.ranking(id, 'semana').rows[0];
   assert.equal(r.score, 0); // lo comprado no suma en la semana
@@ -157,7 +157,7 @@ test('+1 día: se acredita una sola vez aunque el aviso llegue repetido, y no cu
   assert.equal(store.purchaseOf(id, ck()), null);
 });
 
-test('+1 día: máximo uno por semana y nunca en la última hora', () => {
+test('+4 días: máximo una compra por semana y nunca en la última hora', () => {
   const { store, user, advance } = setup();
   const id = user('Nico');
   assert.deepEqual(store.checkBuy(id, 'dia'), { lifeNo: 1, lang: 'en' });

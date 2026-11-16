@@ -98,6 +98,19 @@ export const catText = (c, lang) => ({ label: c.label, hint: c.hint, ...(lang ==
 
 export const dayValue = (minWageMonthly) => minWageMonthly / 30;
 
+/**
+ * 1 día de vida = 1 día de salario mínimo DEL PAÍS DONDE VIVES. Por ahora hay dos:
+ * - Colombia: el SMMLV (mensual, en pesos).
+ * - Estados Unidos: un salario por hora (US$14 por defecto) × 40 h × 52 semanas / 12 → mensual.
+ * Los demás países usan, por ahora, el de Colombia. Todo se devuelve en pesos colombianos al mes, que es la
+ * unidad de la economía (quien usa dólares los ve convertidos con USD_COP).
+ */
+export const US_HOURS_PER_MONTH = (40 * 52) / 12;
+export const wageCountry = (country) => (country === 'US' ? 'US' : 'CO');
+export function wageFor(country, { co = 1_750_905, usHourly = 14, usdCop = 4000 } = {}) {
+  return wageCountry(country) === 'US' ? usHourly * US_HOURS_PER_MONTH * usdCop : co;
+}
+
 /** Segundos de vida (con signo) que vale una actividad. */
 export function lifeSeconds(category, amount, minWageMonthly) {
   const c = CATEGORIES[category];

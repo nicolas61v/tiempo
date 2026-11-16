@@ -727,3 +727,21 @@ test('el reloj parte en años, meses, semanas y días', () => {
   assert.deepEqual(split(365 * DAY + 40 * DAY + 5000), { y: 1, mo: 1, w: 1, d: 2, h: 14, m: 0, s: 5 });
   assert.deepEqual(split(-5000), { y: 0, mo: 0, w: 0, d: 0, h: 0, m: 0, s: 0 });
 });
+
+test('salario por país: 1 día de vida = 1 día de salario mínimo de donde vives (Colombia o Estados Unidos)', () => {
+  const t = Date.UTC(2026, 10, 16, 12);
+  // Colombia: SMMLV 2026. Estados Unidos: US$14 la hora × 40 h × 52 semanas / 12; USD_COP 4.000.
+  const store = openStore({ minWage: 1_750_905, usMinWageHourly: 14, usdCop: 4000, now: () => t });
+  const user = (country) => store.auth(store.createUser({ country }).token).id;
+  const co = user('CO'), us = user('US'), mx = user('MX');
+  const earn = (id, pesos) => store.addTx(id, { category: 'ingreso', amount: pesos }).tx.seconds;
+  const coDay = 1_750_905 / 30; // $58.363,5
+  const usDay = ((14 * 40 * 52) / 12 / 30) * 4000; // US$80,89 en pesos
+  const days = (pesos, day) => Math.round((pesos / day) * 86_400);
+  assert.ok(Math.abs(usDay / 4000 - 80.89) < 0.01);
+  assert.equal(earn(co, 58_364), days(58_364, coDay)); // en Colombia, $58.364 ≈ 1 día
+  assert.ok(Math.abs(earn(co, 58_364) - 86_400) < 5);
+  assert.equal(earn(us, 58_364), days(58_364, usDay)); // en EE. UU. esa misma plata vale mucho menos (≈ 4,3 h)
+  assert.ok(Math.abs(earn(us, Math.round(usDay)) - 86_400) < 5); // allá, 1 día cuesta unos US$80,89
+  assert.equal(earn(mx, 58_364), days(58_364, coDay)); // los demás países usan, por ahora, el de Colombia
+});

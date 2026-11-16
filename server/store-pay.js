@@ -1,17 +1,17 @@
-// Compras: Tiempo Plus, Revivir, +1 día para ti y regalos de tiempo.
+// Compras: Tiempo Plus, Revivir, +4 días para ti y regalos de tiempo.
 //
 // El tiempo y el Plus se acreditan SOLO con un pago confirmado por el proveedor (webhook con firma verificada
 // o consulta directa del servidor al proveedor), nunca por lo que diga el navegador. Todo es idempotente por
 // la referencia del pago: un aviso repetido no acredita dos veces.
 //
 // Lo comprado nunca cuenta en el ranking (categorías con bought: true en economy.js) y tiene topes:
-// +1 día para ti máximo una vez por semana y nunca en tu última hora; cada persona recibe máximo un regalo
+// +4 días para ti máximo una vez por semana y nunca en tu última hora; cada persona recibe máximo un regalo
 // comprado por semana.
 
 const DAY = 86_400;
 const DAY_MS = DAY * 1000;
 /** Tiempo que da cada producto (Plus no da tiempo). */
-export const PRODUCT_SECONDS = { dia: DAY, revivir: DAY, regalo: 7 * DAY };
+export const PRODUCT_SECONDS = { dia: 4 * DAY, revivir: DAY, regalo: 7 * DAY };
 export const PRODUCTS_LIST = ['plus', 'dia', 'regalo', 'revivir'];
 export const DIA_EVERY_MS = 7 * DAY_MS;
 export const GIFT_EVERY_MS = 7 * DAY_MS;
@@ -60,7 +60,7 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
         }
         const last = p.lastOf.get(u.id, 'dia').at;
         if (last && t - last < DIA_EVERY_MS) {
-          const e = err(409, 'dia_limit', 'Ya compraste tu día de esta semana', "You've already bought this week's day");
+          const e = err(409, 'dia_limit', 'Ya compraste tus días de esta semana', "You've already bought this week's days");
           e.until = last + DIA_EVERY_MS;
           return e;
         }

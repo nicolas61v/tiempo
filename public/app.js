@@ -1,5 +1,5 @@
 import { Clock } from './clock.js';
-import { CATEGORIES, lifeSeconds, dayValue, catText, MONEY_CATS, BIO_MAX, ACCUSE_POWER } from './economy.js';
+import { CATEGORIES, lifeSeconds, dayValue, wageFor, wageCountry, catText, MONEY_CATS, BIO_MAX, ACCUSE_POWER } from './economy.js';
 import { T, LANG, LOCALE, saveLang, translatePage } from './i18n.js';
 import qrcode from './vendor/qrcode.mjs';
 import { canScan, startScan } from './scan.js';
@@ -10,9 +10,9 @@ const DAY = 86_400, HOUR = 3_600, MIN = 60, WEEK = 7 * DAY;
 const STORE_KEY = 'tiempo.v1';
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content;
 const INITIAL = Number(meta('initial-seconds')) || WEEK;
-const MIN_WAGE = Number(meta('min-wage')) || 1_750_905;
+const WAGE_CO = Number(meta('min-wage')) || 1_750_905;
+const WAGE_US_HOURLY = Number(meta('min-wage-us')) || 14;
 const DAYS_PER_DAY = Number(meta('days-per-day')) || 7; // charlas con el Guardián por fecha
-const DAY_VALUE = dayValue(MIN_WAGE);
 const VERSION = meta('app-version') || 'dev';
 const PAYMENTS = meta('payments') === '1'; // la tienda (Lemon Squeezy) está configurada en el servidor
 // Precios en centavos de dólar: "plus=299;dia=99;…" (los define el servidor)
@@ -25,13 +25,19 @@ const ORDER = { earn: ['ingreso', 'inversion'], spend: ['consumo'] };
 const CHIPS = { money: [5_000, 20_000, 50_000, 100_000, 500_000, 1_000_000], hours: [0.25, 0.5, 1, 2, 4, 8] };
 const MAX_AMOUNT = { money: 10_000_000_000, hours: 24 };
 const SHARE_CHIPS = [300, 900, 3_600, 21_600, DAY, WEEK];
-// La economía es en pesos colombianos (1 día = salario mínimo de Colombia), en cualquier idioma.
+// La economía es en pesos colombianos, en cualquier idioma. 1 día de vida = 1 día de salario mínimo del país donde
+// vive la persona (Colombia o Estados Unidos; los demás países, por ahora, el de Colombia).
 const cop = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'COP', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 });
 const usdFmt = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const USD_COP = Number(meta('usd-cop')) || 4000;
 const CHIPS_USD = [5, 10, 20, 50, 100, 500];
 /** Moneda de la persona: por dentro todo es en pesos colombianos; quien usa dólares los ve convertidos. */
 const usesUsd = () => S?.currency === 'USD';
+/** Salario mínimo mensual (en pesos) del país de la persona, y lo que vale 1 día de vida. */
+const minWage = () => wageFor(S?.country, { co: WAGE_CO, usHourly: WAGE_US_HOURLY, usdCop: USD_COP });
+const dayVal = () => dayValue(minWage());
+/** De qué país es el salario que se usa (para decirlo en Ajustes). */
+const wagePlace = () => T(`wage.${wageCountry(S?.country)}`);
 /** Un monto guardado en pesos, en la moneda de la persona. */
 const fmtMoney = (pesos) => (usesUsd() ? usdFmt.format(pesos / USD_COP) : cop.format(pesos));
 /** Lo que escribe la persona (en su moneda) → pesos, y al revés para mostrarlo en el campo. */
@@ -539,8 +545,8 @@ function formula(c, amount) {
   const what = cText(c).label.toLowerCase();
   if (c.unit === 'money') {
     return amount
-      ? `${fmtMoney(amount)}${rate} ÷ ${fmtMoney(DAY_VALUE)} ${T('formula.money')}`
-      : T('formula.base', { dv: fmtMoney(DAY_VALUE) });
+      ? `${fmtMoney(amount)}${rate} ÷ ${fmtMoney(dayVal())} ${T('formula.money')}`
+      : T('formula.base', { dv: fmtMoney(dayVal()) });
   }
   return amount
     ? T('formula.hours', { dur: fmtDur(amount * HOUR), what, rate })
@@ -598,7 +604,7 @@ function renderTx() {
       : CHIPS.money.map((v) => [moneyChip(v), v]);
   $('#tx-chips').replaceChildren(...chips.map(([label, v]) => button(label, { v })));
 
-  const secs = lifeSeconds(txCat, txAmount, MIN_WAGE);
+  const secs = lifeSeconds(txCat, txAmount, minWage());
   const amount = $('#tx-amount');
   amount.textContent = secs ? signed(secs) : '0m';
   amount.classList.toggle('zero', !secs);
@@ -640,7 +646,7 @@ function renderTx() {
 
 async function submitTx(e) {
   e.preventDefault();
-  const secs = lifeSeconds(txCat, txAmount, MIN_WAGE);
+  const secs = lifeSeconds(txCat, txAmount, minWage());
   if (!secs || busy) return;
   const note = $('#tx-note').value.trim();
   busy = true;
@@ -1989,7 +1995,7 @@ function fillCountries(select, selected) {
 function renderCountryCurrency() {
   fillCountries($('#country-select'), S?.country || '');
   for (const b of document.querySelectorAll('#currency-seg button')) b.setAttribute('aria-checked', String(b.dataset.cur === (S?.currency || 'COP')));
-  $('#currency-status').textContent = T('currency.sub', { dv: fmtMoney(DAY_VALUE) });
+  $('#currency-status').textContent = T('currency.sub', { dv: fmtMoney(dayVal()) });
 }
 
 async function setCountry(e) {
@@ -2010,7 +2016,7 @@ async function setCurrency(e) {
   try {
     apply((await api('PATCH', '/api/me', { currency: cur })).state);
     renderCountryCurrency();
-    $('#rate-text').textContent = T('rate', { dv: fmtMoney(DAY_VALUE), mw: fmtMoney(MIN_WAGE) });
+    $('#rate-text').textContent = T('rate', { dv: fmtMoney(dayVal()), mw: fmtMoney(minWage()), where: wagePlace() });
     toast(T('currency.saved', { c: cur }));
   } catch (err) {
     toast(err.message);
@@ -2233,7 +2239,7 @@ function openSettings(focusLink = false) {
   $('#bio-input').value = S?.bio || '';
   renderBioCount();
   renderNameCount();
-  $('#rate-text').textContent = T('rate', { dv: fmtMoney(DAY_VALUE), mw: fmtMoney(MIN_WAGE) });
+  $('#rate-text').textContent = T('rate', { dv: fmtMoney(dayVal()), mw: fmtMoney(minWage()), where: wagePlace() });
   renderCountryCurrency();
   renderLang();
   $('#foot').textContent = `Tiempo · ${VERSION}`;

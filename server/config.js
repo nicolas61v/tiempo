@@ -18,6 +18,9 @@ export const config = {
   initialSeconds: Number(env.INITIAL_SECONDS) || 7 * 86_400,
   // SMMLV Colombia 2026 (Decreto 1469 de 2025). 1 día de vida = este valor / 30.
   minWage: Number(env.MIN_WAGE_MONTHLY) || 1_750_905,
+  // Salario mínimo por hora en Estados Unidos (dólares): para quien vive allá, 1 día de vida = ese salario
+  // × 40 h × 52 semanas / 12 / 30. Los demás países usan, por ahora, el de Colombia.
+  usMinWageHourly: Number(env.MIN_WAGE_US_HOURLY) || 14,
   // Clave de la página /admin. Sin ella, el panel de administración queda apagado.
   adminToken: env.ADMIN_TOKEN || '',
   // Pagos con Lemon Squeezy (pasos en el README). Sin la llave, el secreto del webhook y las 4 variantes,
