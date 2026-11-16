@@ -8,6 +8,22 @@ export const LANGS = ['en', 'es'];
 const KEY = 'tiempo.lang';
 
 function readLang() {
+  // Un link con ?lang=es (los botones de la landing en español) cuenta como elegirlo en Ajustes: queda guardado.
+  // Se quita de la URL para que no se quede pegado al instalar la app ni al compartir el link.
+  try {
+    const url = new URL(globalThis.location?.href);
+    const q = url.searchParams.get('lang');
+    if (q !== null) {
+      url.searchParams.delete('lang');
+      globalThis.history?.replaceState(globalThis.history.state, '', url.pathname + url.search + url.hash);
+      if (LANGS.includes(q)) {
+        try {
+          globalThis.localStorage?.setItem(KEY, q);
+        } catch {}
+        return q;
+      }
+    }
+  } catch {}
   try {
     const l = globalThis.localStorage?.getItem(KEY);
     return LANGS.includes(l) ? l : 'en';

@@ -58,3 +58,31 @@ test('idiomas: cada categoría tiene nombre en inglés', () => {
   assert.equal(catText(CATEGORIES.salud, 'en').label, 'Health');
   assert.equal(catText(CATEGORIES.salud, 'es').label, 'Salud');
 });
+
+test('idiomas: ?lang=es en el link abre la app en español, lo guarda y se borra de la URL', async () => {
+  const saved = new Map();
+  const calls = [];
+  const prev = { location: globalThis.location, history: globalThis.history, localStorage: globalThis.localStorage };
+  const load = async (href, n) => {
+    globalThis.location = { href };
+    globalThis.history = { state: null, replaceState: (_s, _t, u) => calls.push(u) };
+    globalThis.localStorage = { getItem: (k) => saved.get(k) ?? null, setItem: (k, v) => saved.set(k, String(v)) };
+    return (await import(`../public/i18n.js?caso=${n}`)).LANG;
+  };
+  try {
+    assert.equal(await load('https://app.mylifetime.cc/?lang=es', 1), 'es');
+    assert.equal(saved.get('tiempo.lang'), 'es');
+    assert.deepEqual(calls, ['/']);
+    // La próxima vez, sin el parámetro, sigue en español; y los demás parámetros (la vuelta del pago) no se tocan.
+    assert.equal(await load('https://app.mylifetime.cc/', 2), 'es');
+    calls.length = 0;
+    assert.equal(await load('https://app.mylifetime.cc/?pago=ok&ck=ck_1&lang=en#juicio', 3), 'en');
+    assert.deepEqual(calls, ['/?pago=ok&ck=ck_1#juicio']);
+    // Un idioma que no existe se ignora (y se limpia de la URL).
+    calls.length = 0;
+    assert.equal(await load('https://app.mylifetime.cc/?lang=fr', 4), 'en');
+    assert.deepEqual(calls, ['/']);
+  } finally {
+    Object.assign(globalThis, prev);
+  }
+});
