@@ -47,7 +47,7 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
   - *Culpable*: pierde lo que estaba en juego (siempre le queda 1 h), que se reparte entre quienes votaron culpable (o entre quienes lo citaron, si no se defendió); pierde la confianza en sus ingresos y sale del ranking 30 días. *Inocente*: conserva lo que estaba en disputa y gana 1 día, igual que cada uno de los que votaron inocente. *Sin quórum*: libre. Después de cualquier juicio, nadie puede volver a juzgarlo en 14 días.
   - **El Guardián también cita a juicio**: si al juzgar un día ve algo serio (insiste con cosas imposibles, ingresos que no cuadran con su historia), lo cita y con eso basta; la gente se puede sumar. Solo cita a quien está en el ranking.
   - **Un voto por persona al día** (citar o decidir un veredicto), contra el spam. Los premios del jurado no cuentan en el ranking. Las fotos de las pruebas se borran al cerrar el juicio.
-- **Tienda (Lemon Squeezy)**: **Plus** US$4,99/mes (15 charlas al día, 3 réplicas, Guardián Sonnet, 1 Revivir gratis al mes; nunca da tiempo), **Revivir** US$4,99 (en cero: vuelves con 1 día conservando vida, récord e historial), **+4 días** US$2,99 (una compra por semana, nunca en la última hora) y **Regalo de 1 semana** US$4,99 (código + QR; cada persona recibe máximo uno comprado por semana). Precios en `PRODUCTS` de `server/payments.js`.
+- **Tienda (Creem)**: **Plus** US$4,99/mes (15 charlas al día, 3 réplicas, Guardián Sonnet, 1 Revivir gratis al mes; nunca da tiempo), **Revivir** US$4,99 (en cero: vuelves con 1 día conservando vida, récord e historial), **+4 días** US$2,99 (una compra por semana, nunca en la última hora) y **Regalo de 1 semana** US$4,99 (código + QR; cada persona recibe máximo uno comprado por semana). Precios en `PRODUCTS` de `server/payments.js`.
 - **Transferir**: creas un código de 6 letras + QR por X tiempo. El tiempo sale de tu reloj al instante; quien lo escanea desde la app (Transferir → Recibir → Escanear QR) o escribe el código lo recibe. Si nadie lo reclama en 10 minutos, vuelve solo.
 - **Alertas push** a 24 h, 1 h, 10 min y al llegar a cero, aunque la app esté cerrada.
 - **Tu llave en QR**: Ajustes → Tu llave → Mostrar QR; en el otro dispositivo, Ajustes → escanear llave. Y si alguien la vio, **Cambiar tu llave** da una nueva para el mismo reloj.
@@ -64,7 +64,7 @@ Un solo servicio: Node 24 sin framework, SQLite integrado (`node:sqlite`) con mi
 
 ```
 server/   index.js (HTTP + API) · store.js (SQLite) · store-pay.js (compras) · store-social.js (ranking y juicios)
-          payments.js (Lemon Squeezy) · judge.js (Guardián IA) · push.js · static.js
+          payments.js (Creem) · judge.js (Guardián IA) · push.js · static.js
 public/   index.html · app.js · i18n.js (textos en/es) · clock.js · economy.js · styles.css · sw.js · vendor/ · fonts/
 test/     store.test.js · pay.test.js · social.test.js · i18n.test.js · scan.test.js
 ```
@@ -88,37 +88,36 @@ npm test
 
 No actives *Serverless / App Sleeping*: el servidor tiene que estar despierto para mandar alertas, devolver códigos vencidos y cerrar juicios.
 
-### Pagos con Lemon Squeezy (lo único que hay que hacer)
+### Pagos con Creem (lo único que hay que hacer)
 
-Lemon Squeezy es el *comerciante registrado*: cobra con tarjeta, maneja los impuestos de cada país y te paga por banco o PayPal, así que no hace falta una cuenta de Stripe (que no abre en Colombia). Empieza en **modo de prueba** (interruptor *Test mode* del panel).
+[Creem](https://www.creem.io) es el *comerciante registrado*: cobra con tarjeta, maneja los impuestos de cada país y te paga por banco o en USDC. Acepta personas naturales de Colombia, sin empresa (Stripe no abre en Colombia y Lemon Squeezy ya no acepta tiendas nuevas). Empieza en **modo de prueba**: interruptor *Test Mode* abajo a la izquierda del panel. Prueba y real son mundos aparte: cada uno tiene sus propios productos, llave y webhook.
 
-1. **Productos**: en *Products → New product* crea 4, con estos nombres y precios (la app cobra lo de `PRODUCTS`; si en el panel pones otro precio, el link público de la tienda vendería a ese):
-   - **Tiempo Plus**: *Subscription*, US$4,99 cada mes.
-   - **+4 días de vida**: *Single payment*, US$2,99.
-   - **Regalo: 1 semana de vida**: *Single payment*, US$4,99.
-   - **Revivir**: *Single payment*, US$4,99.
-2. **Llave de la API**: *Settings → API → +* → copia la llave → Railway → *Variables* → `LEMONSQUEEZY_API_KEY`.
-3. **Webhook**: *Settings → Webhooks → +*:
-   - URL: `https://app.mylifetime.cc/api/lemonsqueezy/webhook`
-   - *Signing secret*: inventa uno (letras y números al azar, de 20 a 40) y ponlo también en Railway → `LEMONSQUEEZY_WEBHOOK_SECRET`.
-   - Eventos: `order_created`, `order_refunded`, `subscription_created`, `subscription_updated`, `subscription_cancelled`, `subscription_resumed`, `subscription_expired`, `subscription_paused`, `subscription_unpaused`, `subscription_payment_success`, `subscription_payment_recovered`, `subscription_payment_refunded`.
-4. **Variantes**: con la llave puesta, Railway redespliega y en los logs sale `variantes de tu tienda (id · producto · variante · tipo)`. Copia el id de cada producto a `LEMONSQUEEZY_VARIANT_PLUS`, `LEMONSQUEEZY_VARIANT_DIA`, `LEMONSQUEEZY_VARIANT_REGALO` y `LEMONSQUEEZY_VARIANT_REVIVIR`.
-5. En los logs debe salir `pagos con Lemon Squeezy listos (modo de prueba)`. Si algo no cuadra (una variante que no existe, Plus que no es suscripción, un precio distinto), sale un `⚠ Lemon Squeezy: …` que dice qué arreglar.
-6. Prueba en la app (Tienda) con la tarjeta `4242 4242 4242 4242`, cualquier fecha futura y cualquier CVC. La app muestra un aviso de "modo de prueba" mientras la tienda esté en pruebas.
-7. Para cobrar de verdad: activa la tienda en Lemon Squeezy (verifican tu identidad y revisan la app), apaga *Test mode* y repite 2, 3 y 4 en modo real (la llave, el webhook y los ids de las variantes son otros).
+1. **Productos**: *Products → Create product* y crea 4, en **USD**, con estos nombres y precios (la app avisa en los logs si no cuadran):
+   - **Tiempo Plus**: *Subscription* (recurrente), cada mes, US$4,99.
+   - **+4 días de vida**: *One-time*, US$2,99.
+   - **Regalo: 1 semana de vida**: *One-time*, US$4,99.
+   - **Revivir**: *One-time*, US$4,99.
 
-Si la llave ve más de una tienda, define también `LEMONSQUEEZY_STORE_ID` (los logs dicen cuáles hay).
+   Copia el id de cada uno (`prod_…`) a Railway → *Variables*: `CREEM_PRODUCT_PLUS`, `CREEM_PRODUCT_DIA`, `CREEM_PRODUCT_REGALO` y `CREEM_PRODUCT_REVIVIR`.
+2. **Llave de la API**: *Developers → API keys* → copia la llave → Railway → `CREEM_API_KEY`. La de prueba empieza por `creem_test_` y la app usa sola la API de prueba.
+3. **Webhook**: *Developers → Webhooks → Add*:
+   - URL: `https://app.mylifetime.cc/api/creem/webhook`
+   - Eventos: todos, o al menos `checkout.completed`, `subscription.active`, `subscription.paid`, `subscription.update`, `subscription.scheduled_cancel`, `subscription.canceled`, `subscription.expired`, `subscription.paused`, `subscription.unpaid`, `subscription.past_due`, `refund.created` y `dispute.created`.
+   - Copia el *secret* del webhook a Railway → `CREEM_WEBHOOK_SECRET`.
+4. Railway redespliega solo. En los logs debe salir `pagos con Creem listos (modo de prueba)`. Si algo no cuadra (un producto que no existe, Plus que no es mensual, un precio o una moneda distinta), sale un `⚠ Creem: …` que dice qué arreglar.
+5. Prueba en la app (Tienda) con la tarjeta `4111 1111 1111 1111`, cualquier fecha futura y cualquier CVC. La app muestra un aviso de "modo de prueba" mientras la tienda esté en pruebas.
+6. Para cobrar de verdad: Creem revisa la cuenta (1 a 3 días hábiles; pide dominio propio, términos, privacidad, precios visibles y correo de soporte: `mylifetime.cc` ya los tiene). Luego configura la cuenta de pago (*Balance → Payout Account*), apaga *Test Mode* y repite 1, 2 y 3 en modo real.
 
-Seguridad: el tiempo y el Plus se acreditan solo por el webhook con firma verificada (nunca por lo que diga el navegador; al volver del pago la app solo espera a que llegue), y un aviso repetido no acredita dos veces. Lo que se entrega sale de la variante pagada, no de los datos del checkout. Un reembolso completo descuenta lo acreditado y cancela el Plus; para reembolsar un mes de Plus, cancela también la suscripción en Lemon Squeezy.
+Seguridad: el tiempo y el Plus se acreditan solo por el webhook con firma verificada (nunca por lo que diga el navegador; al volver del pago la app solo espera a que llegue), y un aviso repetido no acredita dos veces. Lo que se entrega sale del producto pagado, no de los metadatos del checkout. Un reembolso completo (o un contracargo) descuenta lo acreditado y, si era Plus, lo termina; para reembolsar un mes de Plus, cancela también la suscripción en Creem.
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Activa al Guardián |
 | `ADMIN_TOKEN` | — | Clave del panel `/admin` (sin ella, el panel está apagado) |
-| `LEMONSQUEEZY_API_KEY` | — | Llave de la API de Lemon Squeezy (de prueba o real) |
-| `LEMONSQUEEZY_WEBHOOK_SECRET` | — | El *Signing secret* del webhook `/api/lemonsqueezy/webhook` |
-| `LEMONSQUEEZY_VARIANT_PLUS` · `_DIA` · `_REGALO` · `_REVIVIR` | — | Id de la variante de cada producto (salen en los logs). Sin estas 6, la tienda queda apagada |
-| `LEMONSQUEEZY_STORE_ID` | la única que ve la llave | Solo si la llave ve más de una tienda |
+| `CREEM_API_KEY` | — | Llave de la API de Creem (de prueba `creem_test_…` o real) |
+| `CREEM_WEBHOOK_SECRET` | — | El *secret* del webhook `/api/creem/webhook` |
+| `CREEM_PRODUCT_PLUS` · `_DIA` · `_REGALO` · `_REVIVIR` | — | Id (`prod_…`) de cada producto. Sin estas 6, la tienda queda apagada |
+| `CREEM_TEST_MODE` | según la llave | `1` o `0` para forzar prueba o real |
 | `PUBLIC_URL` | `https://<RAILWAY_PUBLIC_DOMAIN>` | A dónde vuelve alguien tras pagar si el navegador no dice de dónde salió (casi nunca hace falta) |
 | `JUDGE_MODEL` | `claude-haiku-5-5` | Modelo del Guardián |
 | `JUDGE_MODEL_PLUS` | `claude-sonnet-5-5` | Modelo del Guardián para quien tiene Plus (con respaldo automático si declina) |
@@ -157,9 +156,9 @@ Todas las rutas usan `Authorization: Bearer <llave>`, salvo las marcadas. La app
 | GET | `/api/trials/:id` | Un juicio: acusaciones (anónimas), defensa y pruebas |
 | POST | `/api/trials/:id/defense` · `/vote` | `{ text, images[] }` (el citado, día 1, con 1 a 3 fotos de pruebas) · `{ vote: 'culpable'\|'inocente' }` (día 2, secreto) |
 | GET | `/api/store` | Tienda: productos con precio y si se pueden comprar ya, tus compras y tus regalos |
-| POST | `/api/checkout` | `{ product: 'plus'\|'dia'\|'regalo'\|'revivir' }` → `{ url }` de Lemon Squeezy |
-| GET | `/api/checkout/:ck` | Estado de un pago al volver de Lemon Squeezy (`ck_…`, la referencia del checkout) |
+| POST | `/api/checkout` | `{ product: 'plus'\|'dia'\|'regalo'\|'revivir' }` → `{ url }` de Creem |
+| GET | `/api/checkout/:ck` | Estado de un pago al volver de Creem (`ck_…`, la referencia del checkout) |
 | POST | `/api/plus/renewal` | `{ renews }`: cancelar o retomar la renovación de Plus |
 | POST | `/api/revive` | Revivir gratis (Plus, una vez cada 30 días) |
-| POST | `/api/lemonsqueezy/webhook` | Avisos de Lemon Squeezy (sin llave; con firma `X-Signature`) |
+| POST | `/api/creem/webhook` | Avisos de Creem (sin llave; con firma `creem-signature`) |
 | POST · DELETE | `/api/push` | Suscribir o desuscribir alertas (`tz` opcional: zona horaria del teléfono) |
