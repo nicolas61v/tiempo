@@ -950,7 +950,7 @@ export const ES_STATIC = {
   'plus.p5': 'Insignia Plus en el ranking',
   'plus.fair': 'Plus nunca te da tiempo: en el ranking todos juegan con las mismas reglas.',
   'store.gifts': 'Tus regalos',
-  'store.fine': 'Pago seguro con Stripe: nunca vemos tu tarjeta. Lo que compras nunca cuenta en el ranking. Precios en dólares.',
+  'store.fine': 'Pago seguro con Lemon Squeezy: nunca vemos tu tarjeta. Lo que compras nunca cuenta en el ranking. Precios en dólares.',
   'a.country': 'Tu país (obligatorio)',
   'bio.hint': 'Cuenta a qué te dedicas: el Guardián y los jurados lo tienen en cuenta, y te ayuda a defenderte si te llevan a juicio.',
   'country.banner': 'Completa tu perfil: elige tu país',

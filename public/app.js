@@ -14,7 +14,7 @@ const MIN_WAGE = Number(meta('min-wage')) || 1_750_905;
 const DAYS_PER_DAY = Number(meta('days-per-day')) || 7; // charlas con el Guardián por fecha
 const DAY_VALUE = dayValue(MIN_WAGE);
 const VERSION = meta('app-version') || 'dev';
-const PAYMENTS = meta('payments') === '1'; // la tienda (Stripe) está configurada en el servidor
+const PAYMENTS = meta('payments') === '1'; // la tienda (Lemon Squeezy) está configurada en el servidor
 // Precios en centavos de dólar: "plus=299;dia=99;…" (los define el servidor)
 const PRICES = Object.fromEntries(
   (meta('prices') || '').split(';').map((kv) => kv.split('=')).filter(([k, v]) => k && Number(v)).map(([k, v]) => [k, Number(v)]),
@@ -108,12 +108,12 @@ if (dayOnLoad) history.replaceState(null, '', location.pathname);
 let trialOnLoad = location.hash === '#juicio';
 if (trialOnLoad) history.replaceState(null, '', location.pathname);
 
-// Vuelta del pago (Stripe): /?pago=ok&cs=… o /?pago=no. Lo comprado lo confirma el servidor, no esta URL.
+// Vuelta del pago (Lemon Squeezy): /?pago=ok&ck=…. Lo comprado lo confirma el servidor, no esta URL.
 let payReturn = null;
 {
   const qs = new URLSearchParams(location.search);
   if (qs.has('pago')) {
-    payReturn = { ok: qs.get('pago') === 'ok', cs: qs.get('cs') || '' };
+    payReturn = { ok: qs.get('pago') === 'ok', ck: qs.get('ck') || '' };
     history.replaceState(null, '', location.pathname + location.hash);
   }
 }
@@ -1790,7 +1790,7 @@ function openTrialFromNotice() {
   setTimeout(() => (S.trial ? openTrial(S.trial.id) : openRank('juicios')), 260);
 }
 
-/* ───────── tienda: Plus, +1 día, regalos y Revivir (Stripe) ───────── */
+/* ───────── tienda: Plus, +1 día, regalos y Revivir (Lemon Squeezy) ───────── */
 
 let storeData = null;
 let openGift = null; // código cuyo QR está a la vista
@@ -1882,7 +1882,7 @@ function renderStore() {
   $('#store-gifts').replaceChildren(...gifts.map(giftRow));
 }
 
-/** Al pago de Stripe (redirección). Lo comprado llega por el webhook o al volver, nunca por esta página. */
+/** Al pago de Lemon Squeezy (redirección). Lo comprado llega por el webhook, nunca por esta página. */
 async function buy(product, btn) {
   if (btn) btn.disabled = true;
   try {
@@ -1927,17 +1927,17 @@ async function revive() {
   buy('revivir', $('#btn-revive'));
 }
 
-/** Volvió de Stripe: el servidor confirma el pago (webhook, o le pregunta a Stripe) y entonces se celebra. */
+/** Volvió del pago: cuando el webhook de Lemon Squeezy lo confirma en el servidor, se celebra. */
 async function handlePayReturn() {
   const r = payReturn;
   payReturn = null;
   if (!r) return;
   if (!r.ok) return toast(T('pay.canceled'));
-  if (!/^cs_[\w]+$/.test(r.cs)) return;
+  if (!/^ck_[a-f0-9]{32}$/.test(r.ck)) return;
   toast(T('pay.checking'));
   for (let i = 0; i < 15; i++) {
     try {
-      const st = await api('GET', `/api/checkout/${r.cs}`);
+      const st = await api('GET', `/api/checkout/${r.ck}`);
       if (st.state) apply(st.state);
       if (st.status === 'pagado') {
         clock.flash('gain');
