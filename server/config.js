@@ -20,10 +20,18 @@ export const config = {
   minWage: Number(env.MIN_WAGE_MONTHLY) || 1_750_905,
   // Clave de la página /admin. Sin ella, el panel de administración queda apagado.
   adminToken: env.ADMIN_TOKEN || '',
-  // Pagos con Stripe: solo estas dos llaves (sk_test_… / whsec_…). Sin la primera, la tienda queda apagada.
-  stripe: {
-    secretKey: (env.STRIPE_SECRET_KEY || '').trim(),
-    webhookSecret: (env.STRIPE_WEBHOOK_SECRET || '').trim(),
+  // Pagos con Lemon Squeezy (pasos en el README). Sin la llave, el secreto del webhook y las 4 variantes,
+  // la tienda queda apagada. La tienda se descubre sola si la llave ve una sola.
+  lemonsqueezy: {
+    apiKey: (env.LEMONSQUEEZY_API_KEY || '').trim(),
+    webhookSecret: (env.LEMONSQUEEZY_WEBHOOK_SECRET || '').trim(),
+    storeId: (env.LEMONSQUEEZY_STORE_ID || '').trim(),
+    variants: {
+      plus: (env.LEMONSQUEEZY_VARIANT_PLUS || '').trim(),
+      dia: (env.LEMONSQUEEZY_VARIANT_DIA || '').trim(),
+      regalo: (env.LEMONSQUEEZY_VARIANT_REGALO || '').trim(),
+      revivir: (env.LEMONSQUEEZY_VARIANT_REVIVIR || '').trim(),
+    },
   },
   // Pesos por dólar: quien usa la app en dólares ve y escribe la plata en USD (por dentro todo es en pesos).
   usdCop: Number(env.USD_COP) || 4000,

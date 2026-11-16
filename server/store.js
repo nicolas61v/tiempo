@@ -257,7 +257,7 @@ export const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT '';  -- '' = sin elegir (inglés)
   `,
-  // v10 · pagos (Stripe), Tiempo Plus, ranking por elección, confianza en los ingresos y juicios del jurado.
+  // v10 · pagos (hoy con Lemon Squeezy), Tiempo Plus, ranking por elección, confianza en los ingresos y juicios del jurado.
   // Solo agrega tablas y columnas con valores por defecto: no toca relojes.
   `
   CREATE TABLE IF NOT EXISTS purchases (

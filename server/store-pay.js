@@ -155,7 +155,7 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
       };
     },
 
-    /** Una compra de esta persona por la referencia del pago (para la vuelta del checkout). */
+    /** Una compra de esta persona por la referencia del checkout (para la vuelta del pago). */
     purchaseOf(id, ref) {
       const row = p.byRef.get(String(ref || ''));
       if (!row) return null; // aún no llega (o no existe)
@@ -165,14 +165,19 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
     },
 
     /**
-     * Pago confirmado de una compra única o del primer mes de Plus. Idempotente por ref.
+     * Pago confirmado de una compra única o del primer mes de Plus. Idempotente por ref (el checkout).
+     * Si el mismo checkout se paga otra vez (otro paymentRef), es otra compra y se acredita también.
      * Revivir con el reloj ya andando (renació gratis mientras pagaba) o +1 día con el reloj en cero:
      * se entrega igual el día pagado.
      */
-    fulfill({ provider = 'stripe', ref, userId, product, paymentRef = '', amount = 0, currency = '', subscription = '' }) {
+    fulfill({ provider = 'lemonsqueezy', ref, userId, product, paymentRef = '', amount = 0, currency = '', subscription = '' }) {
       if (!ref || !PRODUCTS_LIST.includes(product)) return { ignored: true };
       return tx(() => {
-        const dup = p.byRef.get(ref);
+        let dup = p.byRef.get(ref);
+        if (dup && paymentRef && dup.payment_ref && dup.payment_ref !== paymentRef) {
+          ref = `${ref}:${paymentRef}`;
+          dup = p.byRef.get(ref);
+        }
         if (dup) return { duplicate: true, product: dup.product, userId: dup.user_id };
         const u = q.byId.get(userId);
         if (!u) return { unknown: true };
@@ -200,7 +205,7 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
     },
 
     /** Factura de Plus pagada (primer mes o renovación): Plus hasta el fin del periodo + 2 días de margen. */
-    renewPlus({ subscription, userId, ref, until, amount = 0, currency = '', first = false }) {
+    renewPlus({ provider = 'lemonsqueezy', subscription, userId, ref, until, amount = 0, currency = '', first = false }) {
       return tx(() => {
         const u = userOf({ subscription, userId });
         if (!u) return { unknown: true };
@@ -208,7 +213,7 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
         const end = Number.isFinite(until) && until > t ? until : t + PLUS_FIRST_MS;
         p.setPlus.run(Math.max(u.plus_until, end + PLUS_GRACE_MS), subscription || u.plus_sub, 1, u.id);
         // El primer mes ya quedó registrado con el checkout: no se cuenta dos veces.
-        if (!first && ref && !p.byRef.get(ref)) p.insert.run(u.id, 'stripe', ref, 'plus', amount, currency, '', u.life_no, 0, null, t);
+        if (!first && ref && !p.byRef.get(ref)) p.insert.run(u.id, provider, ref, 'plus', amount, currency, '', u.life_no, 0, null, t);
         return { userId: u.id };
       });
     },
