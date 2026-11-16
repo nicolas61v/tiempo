@@ -13,7 +13,10 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
   (`MIGRATIONS` en `server/store.js`, hoy v1–v11), `web-push` y el SDK de Anthropic. Frontend vanilla sin
   build en `public/`. Detalle en `README.md`.
 - **Deploy**: push a `main` → Railway despliega solo. Volumen en `/data`. Producción:
-  `tiempo-production-79dc57d3.up.railway.app`.
+  **`https://app.mylifetime.cc`** (también responde `tiempo-production-79dc57d3.up.railway.app`).
+- **Dominio** `mylifetime.cc` (DNS en Cloudflare): la **landing** vive en `https://mylifetime.cc`, en otro repo
+  (`nicolas61v/mylifetime-landing`, Astro, desplegado en Netlify). No mezclarlas: el dueño las quiere separadas.
+  `hello@mylifetime.cc` es un reenvío de Cloudflare al correo del dueño.
 - **Ya hecho**:
   - Reloj (años · meses · semanas · días · horas · min · seg) que se ajusta a cualquier ancho de pantalla.
   - **Mi día**: le cuentas al Guardián (Claude Haiku 5.5, `server/judge.js`; el dueño lo eligió así) qué
@@ -71,20 +74,12 @@ Sin `ANTHROPIC_API_KEY` el Guardián queda apagado, pero todo lo demás funciona
 
 ## Tareas, en este orden
 
-### 1. Dominio propio y mudanza sin perder relojes (antes de promocionar)
+### 1. Dominio propio: hecho (2026-11-16)
 
-El dueño va a comprar un dominio (piensa en `time.cc`; antes de pagar hay que verificar el precio real,
-porque las palabras cortas en `.cc` suelen ser premium). **Hacerlo antes de la promoción**, para que la gente
-nueva arranque en el dominio definitivo.
-
-- Railway → Settings → Networking → Custom Domain + registro CNAME. Actualizar `VAPID_SUBJECT`.
-- Los dos dominios sirven el mismo servidor y la misma base.
-- En el dominio viejo: aviso "Nos mudamos" con un botón que abre `https://NUEVO/#k=<llave>`. El fragmento
-  `#` no llega al servidor ni queda en los logs. En el nuevo, la app importa la llave; si ya tenía otra
-  distinta, pregunta y guarda la anterior en `oldKeys`. Luego limpia la URL con `history.replaceState`.
-- Las alertas push y la app instalada están atadas al dominio: pedir que reactiven alertas y reinstalen.
-- **Listo cuando**: un reloj creado en el dominio viejo se abre en el nuevo con un toque y `expiresAt`
-  idéntico. Probarlo de punta a punta con dos orígenes locales (`127.0.0.1` y `localhost`).
+La app está en `app.mylifetime.cc` y la landing en `mylifetime.cc` (repo aparte). No hizo falta la mudanza de
+relojes del dominio viejo: nadie usaba la app todavía (decisión del dueño). Desde ahora el origen de la app es
+`app.mylifetime.cc` y **no se cambia** (regla 5). Los links con `?lang=es` (los de la landing en español) abren la
+app en español y lo dejan guardado.
 
 ### 2. Pagos, ranking y juicios: hecho en la rama `pagos-ranking` (falta probarlo con Lemon Squeezy y publicarlo)
 
@@ -172,7 +167,6 @@ de `public/i18n.js` y se usa con `T('clave')`. `test/i18n.test.js` falla si falt
 - ¿Subir los productos de US$0,99? Con la comisión de Lemon Squeezy dejan unos US$0,44.
 - Precios: los de `PRODUCTS` son una propuesta (Plus 2,99/mes, Revivir 0,99, +1 día 0,99, Regalo 3,99). ¿USD único o por país?
 - Límites propuestos: dinero 7 días/semana en tu palabra y 30 para todos; juicio con 3 acusadores, 3 votos de quórum y 2/3 para culpable.
-- Dominio definitivo.
 
 ## Mercado (investigado el 2026-11-13)
 

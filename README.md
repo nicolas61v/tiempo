@@ -47,7 +47,7 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
 - **Tu llave en QR**: Ajustes → Tu llave → Mostrar QR; en el otro dispositivo, Ajustes → escanear llave. Y si alguien la vio, **Cambiar tu llave** da una nueva para el mismo reloj.
 - **Recordatorio de "Mi día"** (cada 6 h, 12 h —por defecto— o 24 h, o apagado): si en ese lapso no le cuentas nada al Guardián, te lo recuerda. Nunca de 22:00 a 8:00 en la hora de tu teléfono; al tocarlo se abre "Mi día".
 - **Sin contraseñas**: al empezar eliges un nombre o apodo (opcional) y la app te muestra tu *llave*, tu identificador. Con ella abres el mismo reloj en otro dispositivo (Ajustes → Tu llave).
-- **Inglés y español**: la app arranca en inglés y se cambia en Ajustes → Language. El Guardián, los errores y las alertas push hablan el idioma de la app.
+- **Inglés y español**: la app arranca en inglés y se cambia en Ajustes → Language (o con un link `?lang=es`, que queda guardado). El Guardián, los errores y las alertas push hablan el idioma de la app.
 - PWA instalable; sin conexión muestra el último estado.
 - **Panel `/admin`** (con `ADMIN_TOKEN`): cuentas repetidas por teléfono o por red, reinicios voluntarios y muertes por reloj. Cada teléfono tiene un identificador anónimo aleatorio y de la red solo se guarda una huella cifrada con un secreto del servidor: **la IP nunca se guarda**.
 - **Las actualizaciones no tocan los relojes**: datos en el volumen, migraciones que solo agregan, copia de seguridad automática antes de migrar, y la app nunca borra una llave por su cuenta.
@@ -93,7 +93,7 @@ Lemon Squeezy es el *comerciante registrado*: cobra con tarjeta, maneja los impu
    - **Revivir**: *Single payment*, US$0,99.
 2. **Llave de la API**: *Settings → API → +* → copia la llave → Railway → *Variables* → `LEMONSQUEEZY_API_KEY`.
 3. **Webhook**: *Settings → Webhooks → +*:
-   - URL: `https://<tu-dominio>/api/lemonsqueezy/webhook`
+   - URL: `https://app.mylifetime.cc/api/lemonsqueezy/webhook`
    - *Signing secret*: inventa uno (letras y números al azar, de 20 a 40) y ponlo también en Railway → `LEMONSQUEEZY_WEBHOOK_SECRET`.
    - Eventos: `order_created`, `order_refunded`, `subscription_created`, `subscription_updated`, `subscription_cancelled`, `subscription_resumed`, `subscription_expired`, `subscription_paused`, `subscription_unpaused`, `subscription_payment_success`, `subscription_payment_recovered`, `subscription_payment_refunded`.
 4. **Variantes**: con la llave puesta, Railway redespliega y en los logs sale `variantes de tu tienda (id · producto · variante · tipo)`. Copia el id de cada producto a `LEMONSQUEEZY_VARIANT_PLUS`, `LEMONSQUEEZY_VARIANT_DIA`, `LEMONSQUEEZY_VARIANT_REGALO` y `LEMONSQUEEZY_VARIANT_REVIVIR`.
