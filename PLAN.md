@@ -30,7 +30,7 @@ cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salar
   - **Idiomas**: inglés (por defecto, decisión del dueño) y español; se cambia en Ajustes → Language y queda
     en el teléfono (`public/i18n.js`). El servidor responde errores, avisos push y al Guardián en el idioma
     de la app (encabezado `X-Lang`, columna `users.lang`). La economía sigue en pesos colombianos.
-  - **En la rama `pagos-ranking` (sin publicar en `main`)**: pagos con Stripe, ranking con ligas y perfiles
+  - **En la rama `pagos-ranking` (sin publicar en `main`)**: pagos con Lemon Squeezy, ranking con ligas y perfiles
     públicos, juicios del jurado, límites de dinero con confianza del Guardián y un Guardián que exige que el día
     sea humanamente posible. Detalle en la tarea 2 y en el `README.md`. Migraciones v10 y v11 (solo agregan).
 
@@ -86,7 +86,7 @@ nueva arranque en el dominio definitivo.
 - **Listo cuando**: un reloj creado en el dominio viejo se abre en el nuevo con un toque y `expiresAt`
   idéntico. Probarlo de punta a punta con dos orígenes locales (`127.0.0.1` y `localhost`).
 
-### 2. Pagos, ranking y juicios: hecho en la rama `pagos-ranking` (falta probarlo con Stripe y publicarlo)
+### 2. Pagos, ranking y juicios: hecho en la rama `pagos-ranking` (falta probarlo con Lemon Squeezy y publicarlo)
 
 Pedido del dueño (2026-11-15): Stripe en una rama aparte y "dejar todo listo para solo pegar la clave y el
 webhook"; ranking para ver quién va ganando más tiempo y **qué hace cada uno**; un límite a lo que se gana por
@@ -94,12 +94,17 @@ dinero; un Guardián que no se trague días imposibles ("9 h de gym", "aprendí 
 ingresos raros (1.000 USD de un día para otro), pero que confíe más en quien ya los probó; y juicios de los
 jugadores contra quien sea sospechosamente rico en tiempo.
 
-**Qué hay** (todo con pruebas en `test/pay.test.js`, `test/social.test.js` y `test/store.test.js`; 60 en total):
+**Qué hay** (todo con pruebas en `test/pay.test.js`, `test/social.test.js` y `test/store.test.js`; 71 en total en el proyecto):
 
-- **Stripe sin dependencias** (`server/payments.js`): checkout por redirección con `price_data` (no hay que crear
-  productos en Stripe), webhook con firma HMAC verificada a mano, eventos de facturas en las dos formas de la API.
+- **Lemon Squeezy sin dependencias** (`server/payments.js`). Cambiado desde Stripe el 2026-11-15 porque Stripe
+  no deja cobrar desde Colombia; Lemon Squeezy es comerciante registrado y paga por banco o PayPal. Checkout por
+  redirección con `custom_price` (el precio sale de `PRODUCTS`) sobre 4 productos creados a mano en el panel (la API
+  no deja crearlos); webhook con firma HMAC (`X-Signature`) verificada a mano. El producto que se entrega sale de
+  la **variante pagada**, no de los datos del checkout (el link público de la tienda deja escribir esos datos).
   Capa intercambiable: el resto de la app solo ve acciones (`paid`, `renewed`, `plus_ended`, `refunded`…).
-  Al volver del pago, si el webhook no ha llegado, el servidor le pregunta a Stripe (servidor a servidor).
+  Lemon Squeezy no deja buscar un pedido por checkout: al volver del pago, la app solo espera el webhook (la
+  referencia `ck_…` viaja en los datos del pago y en la URL de vuelta). Si el mismo checkout se paga dos veces,
+  son dos compras. Al arrancar, `check()` revisa llave, tienda y variantes y deja en los logs lo que falte.
 - **Productos** (precios en `PRODUCTS`): Plus US$2,99/mes · Revivir US$0,99 (1 día, conserva vida, récord e
   historial) · +1 día US$0,99 (uno por semana, nunca en la última hora) · Regalo de 1 semana US$3,99 (código + QR
   por el mismo flujo de transferencias; uno comprado por persona y semana). Lo comprado nunca cuenta en el
@@ -125,16 +130,20 @@ jugadores contra quien sea sospechosamente rico en tiempo.
 
 **Para publicarlo** (en este orden):
 
-1. El dueño pega `STRIPE_SECRET_KEY` y `STRIPE_WEBHOOK_SECRET` **de prueba** en Railway (pasos en el README).
+1. El dueño crea los 4 productos en Lemon Squeezy y pega la llave, el secreto del webhook y las 4 variantes
+   **de prueba** en Railway (pasos en el README).
 2. Probar en producción con la tarjeta 4242: Plus, +1 día, regalo (reclamarlo desde otro reloj) y Revivir
-   (con un reloj de prueba en cero). Un reembolso desde el panel de Stripe debe descontar el tiempo.
+   (con un reloj de prueba en cero). Cancelar y retomar Plus. Un reembolso desde el panel de Lemon Squeezy debe
+   descontar el tiempo. Nada de esto se probó contra la API real todavía (solo con pruebas y un servidor local).
 3. Probar "Mi día" con la API real: un día imposible, un ingreso grande sin prueba (debe pedir comprobante) y
    con prueba (debe dar confianza). Esto gasta tokens: no se probó contra la API en esta sesión.
 4. Merge a `main` con la sonda de deploy (regla 2): la migración v10 solo agrega columnas y tablas.
-5. Cuando todo esté bien, cambiar a las llaves `sk_live_` y su webhook.
+5. Cuando todo esté bien, activar la tienda en Lemon Squeezy (verificación de identidad y revisión) y pasar a la
+   llave, el webhook y las variantes de modo real.
 
-**Ojo**: verificar que la cuenta de Stripe del dueño pueda cobrar desde su país (Stripe no abre cuentas de
-vendedores en Colombia; las opciones son una empresa en un país soportado, p. ej. con Stripe Atlas).
+**Ojo**: Lemon Squeezy cobra 5 % + US$0,50 por venta: en los productos de US$0,99 se queda con más de la mitad.
+Y desde enero de 2026 su futuro está atado a *Stripe Managed Payments*: sigue funcionando, pero hay que confirmar
+que acepte la tienda y que pague a Colombia (lista de países en su documentación).
 
 ### 3. Idiomas: lo que falta
 
@@ -158,7 +167,9 @@ de `public/i18n.js` y se usa con `T('clave')`. `test/i18n.test.js` falla si falt
 
 ## Decisiones pendientes del dueño
 
-- ~~Procesador de pagos~~: Stripe (decidido el 2026-11-15). Falta confirmar el país de la cuenta.
+- ~~Procesador de pagos~~: Lemon Squeezy (2026-11-15; primero fue Stripe, que no deja cobrar desde Colombia).
+  Falta que aprueben la tienda.
+- ¿Subir los productos de US$0,99? Con la comisión de Lemon Squeezy dejan unos US$0,44.
 - Precios: los de `PRODUCTS` son una propuesta (Plus 2,99/mes, Revivir 0,99, +1 día 0,99, Regalo 3,99). ¿USD único o por país?
 - Límites propuestos: dinero 7 días/semana en tu palabra y 30 para todos; juicio con 3 acusadores, 3 votos de quórum y 2/3 para culpable.
 - Dominio definitivo.
