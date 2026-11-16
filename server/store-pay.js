@@ -26,6 +26,7 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
     insert: st(`INSERT INTO purchases (user_id, provider, ref, product, amount, currency, payment_ref, life_no, seconds, ledger_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     setStatus: st('UPDATE purchases SET status = ? WHERE id = ?'),
+    setRef: st('UPDATE purchases SET ref = ? WHERE id = ?'),
     lastOf: st(`SELECT MAX(created_at) AS at FROM purchases WHERE user_id = ? AND product = ? AND status = 'pagado'`),
     mine: st('SELECT id, product, amount, currency, status, created_at FROM purchases WHERE user_id = ? ORDER BY id DESC LIMIT 20'),
     giftInsert: st('INSERT INTO gifts (code, purchase_id, from_user, seconds, created_at) VALUES (?, ?, ?, ?, ?)'),
@@ -170,7 +171,7 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
      * Revivir con el reloj ya andando (renació gratis mientras pagaba) o +1 día con el reloj en cero:
      * se entrega igual el día pagado.
      */
-    fulfill({ provider = 'lemonsqueezy', ref, userId, product, paymentRef = '', amount = 0, currency = '', subscription = '' }) {
+    fulfill({ provider = 'creem', ref, userId, product, paymentRef = '', amount = 0, currency = '', subscription = '' }) {
       if (!ref || !PRODUCTS_LIST.includes(product)) return { ignored: true };
       return tx(() => {
         let dup = p.byRef.get(ref);
@@ -179,6 +180,13 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
           dup = p.byRef.get(ref);
         }
         if (dup) return { duplicate: true, product: dup.product, userId: dup.user_id };
+        // El primer cobro de Plus pudo llegar antes como renovación (subscription.paid): esa misma compra queda
+        // con la referencia del checkout (para la vuelta del pago) y no se cuenta dos veces.
+        const prior = product === 'plus' && paymentRef ? p.byPayment.get(paymentRef) : null;
+        if (prior && prior.product === 'plus' && prior.ref === paymentRef) {
+          p.setRef.run(ref, prior.id);
+          return { product, kind: 'plus', seconds: 0, giftCode: null, userId: prior.user_id };
+        }
         const u = q.byId.get(userId);
         if (!u) return { unknown: true };
         const t = now();
@@ -205,15 +213,18 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
     },
 
     /** Factura de Plus pagada (primer mes o renovación): Plus hasta el fin del periodo + 2 días de margen. */
-    renewPlus({ provider = 'lemonsqueezy', subscription, userId, ref, until, amount = 0, currency = '', first = false }) {
+    renewPlus({ provider = 'creem', subscription, userId, ref, until, amount = 0, currency = '' }) {
       return tx(() => {
         const u = userOf({ subscription, userId });
         if (!u) return { unknown: true };
         const t = now();
         const end = Number.isFinite(until) && until > t ? until : t + PLUS_FIRST_MS;
         p.setPlus.run(Math.max(u.plus_until, end + PLUS_GRACE_MS), subscription || u.plus_sub, 1, u.id);
-        // El primer mes ya quedó registrado con el checkout: no se cuenta dos veces.
-        if (!first && ref && !p.byRef.get(ref)) p.insert.run(u.id, provider, ref, 'plus', amount, currency, '', u.life_no, 0, null, t);
+        // Cada cobro queda una vez: el primero ya quedó con el checkout (misma transacción) y un aviso repetido no
+        // suma otro. La referencia del cobro es también su payment_ref, para que un reembolso lo encuentre.
+        if (ref && !p.byRef.get(ref) && !p.byPayment.get(ref)) {
+          p.insert.run(u.id, provider, ref, 'plus', amount, currency, ref, u.life_no, 0, null, t);
+        }
         return { userId: u.id };
       });
     },

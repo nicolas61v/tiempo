@@ -962,7 +962,7 @@ export const ES_STATIC = {
   'store.title': 'Tienda',
   'store.off': 'Los pagos aún no están activos.',
   'store.test':
-    'Modo de prueba: paga con la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC. No se cobra nada de verdad.',
+    'Modo de prueba: paga con la tarjeta 4111 1111 1111 1111, cualquier fecha futura y cualquier CVC. No se cobra nada de verdad.',
   'plus.p1': '15 charlas al día con el Guardián (en vez de 7)',
   'plus.p2': '3 réplicas por charla (en vez de 2)',
   'plus.p3': 'Un Guardián más fino',
@@ -970,7 +970,7 @@ export const ES_STATIC = {
   'plus.p5': 'Insignia Plus en el ranking',
   'plus.fair': 'Plus nunca te da tiempo: en el ranking todos juegan con las mismas reglas.',
   'store.gifts': 'Tus regalos',
-  'store.fine': 'Pago seguro con Lemon Squeezy: nunca vemos tu tarjeta. Lo que compras nunca cuenta en el ranking. Precios en dólares.',
+  'store.fine': 'Pago seguro con Creem: nunca vemos tu tarjeta. Lo que compras nunca cuenta en el ranking. Precios en dólares.',
   'a.country': 'Tu país (obligatorio)',
   'bio.hint': 'Cuenta a qué te dedicas: el Guardián y los jurados lo tienen en cuenta, y te ayuda a defenderte si te llevan a juicio.',
   'country.banner': 'Completa tu perfil: elige tu país',

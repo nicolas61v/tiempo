@@ -18,18 +18,39 @@ let refs = 0;
 const ck = () => `ck_${String(++refs).padStart(32, '0')}`;
 const paid = (userId, product, extra = {}) => ({ ref: ck(), userId, product, paymentRef: `order_${refs}`, amount: PRODUCTS[product].price, currency: 'usd', ...extra });
 
-/* ───────── webhook de Lemon Squeezy ───────── */
+/* ───────── webhook de Creem ───────── */
 
-const SECRET = 'secreto_de_prueba_000';
-const VARIANTS = { plus: '11', dia: '22', regalo: '33', revivir: '44' };
+const SECRET = 'whsec_de_prueba_000';
+const PRODS = { plus: 'prod_plus', dia: 'prod_dia', regalo: 'prod_regalo', revivir: 'prod_revivir' };
 const sign = (raw, secret = SECRET) => createHmac('sha256', secret).update(raw).digest('hex');
-const ev = (event_name, attributes, { id = '900', custom = {} } = {}) => ({
-  meta: { event_name, custom_data: custom, test_mode: true },
-  data: { type: 'x', id, attributes },
-});
+const ev = (eventType, object, id = 'evt_1') => ({ id, eventType, created_at: 1_800_000_000_000, object });
+/** Un checkout.completed como los de la documentación de Creem. */
+const done = ({ product = 'prod_dia', ref, meta = {}, status = 'paid', sub = null, order = 'ord_7', tran = 'tran_7' } = {}) =>
+  ev('checkout.completed', {
+    id: 'ch_1',
+    object: 'checkout',
+    request_id: ref,
+    order: { id: order, product, amount: 299, amount_paid: 299, currency: 'USD', status, type: sub ? 'recurring' : 'onetime', transaction: tran },
+    product: { id: product, object: 'product', price: 299, currency: 'USD' },
+    customer: { id: 'cust_1', email: 'x@y.z' },
+    subscription: sub,
+    status: 'completed',
+    metadata: meta,
+  });
+/** Un evento de la suscripción de Plus. */
+const subEv = (eventType, status, extra = {}) =>
+  ev(eventType, {
+    id: 'sub_9',
+    object: 'subscription',
+    product: { id: 'prod_plus' },
+    status,
+    current_period_end_date: '2027-01-15T12:00:00.000Z',
+    metadata: { user_id: 'u1' },
+    ...extra,
+  });
 
-test('webhook: solo pasa con la firma de Lemon Squeezy sobre el cuerpo exacto', () => {
-  const raw = JSON.stringify(ev('order_created', { status: 'paid', first_order_item: { variant_id: 22 } }));
+test('webhook: solo pasa con la firma de Creem sobre el cuerpo exacto', () => {
+  const raw = JSON.stringify(done({ ref: ck() }));
   assert.doesNotThrow(() => verifySignature(Buffer.from(raw), sign(raw), SECRET));
   assert.doesNotThrow(() => verifySignature(Buffer.from(raw), sign(raw).toUpperCase(), SECRET));
   const bad = { code: 'signature', status: 400 };
@@ -40,86 +61,143 @@ test('webhook: solo pasa con la firma de Lemon Squeezy sobre el cuerpo exacto', 
   assert.throws(() => verifySignature(Buffer.from(raw), '', SECRET), bad);
   assert.throws(() => verifySignature(Buffer.from(raw), sign(raw), ''), bad);
 
-  const pay = createPayments({ apiKey: 'k', webhookSecret: SECRET, variants: VARIANTS });
-  assert.deepEqual([pay.enabled, pay.webhookReady, pay.missing], [true, true, []]);
+  const pay = createPayments({ apiKey: 'creem_test_k', webhookSecret: SECRET, products: PRODS });
+  assert.deepEqual([pay.enabled, pay.webhookReady, pay.missing, pay.testMode], [true, true, [], true]);
   const out = pay.parseWebhook(Buffer.from(raw), sign(raw));
-  assert.deepEqual([out.type, out.livemode, out.action.type, out.action.product], ['order_created', false, 'paid', 'dia']);
+  assert.deepEqual([out.type, out.id, out.action.type, out.action.product], ['checkout.completed', 'evt_1', 'paid', 'dia']);
 
-  const off = createPayments({ apiKey: 'k', variants: { plus: '11' } });
+  const off = createPayments({ apiKey: 'creem_k', products: { plus: 'prod_plus' } });
   assert.equal(off.enabled, false); // sin webhook no se acredita nada: la tienda no abre
-  assert.deepEqual(off.missing, ['LEMONSQUEEZY_WEBHOOK_SECRET', 'LEMONSQUEEZY_VARIANT_DIA', 'LEMONSQUEEZY_VARIANT_REGALO', 'LEMONSQUEEZY_VARIANT_REVIVIR']);
+  assert.equal(off.testMode, false); // una llave que no es de prueba va a la API real
+  assert.deepEqual(off.missing, ['CREEM_WEBHOOK_SECRET', 'CREEM_PRODUCT_DIA', 'CREEM_PRODUCT_REGALO', 'CREEM_PRODUCT_REVIVIR']);
+  assert.equal(createPayments({ apiKey: 'creem_k', testMode: '1' }).testMode, true); // CREEM_TEST_MODE=1 la fuerza
 });
 
-test('webhook: traduce cada evento de Lemon Squeezy a una acción de la app', () => {
+test('webhook: traduce cada evento de Creem a una acción de la app', () => {
   const ref = ck();
-  const order = { status: 'paid', total_usd: 99, first_order_item: { variant_id: 22 } };
-  assert.deepEqual(eventAction(ev('order_created', order, { id: '7', custom: { user_id: 'u1', product: 'dia', ref } }), VARIANTS), {
-    type: 'paid', ref, userId: 'u1', product: 'dia', paymentRef: 'order_7', subscription: '', amount: 99, currency: 'usd',
+  assert.deepEqual(eventAction(done({ ref, meta: { user_id: 'u1', product: 'dia', ref } }), PRODS), {
+    type: 'paid', ref, userId: 'u1', product: 'dia', paymentRef: 'tran_7', subscription: '', amount: 299, currency: 'usd',
   });
-  // El producto sale de la variante pagada, no de lo que diga el checkout (el link público deja escribir cualquier cosa).
-  const trampa = eventAction(ev('order_created', order, { id: '8', custom: { user_id: 'u1', product: 'regalo', ref: 'x' } }), VARIANTS);
-  assert.deepEqual([trampa.product, trampa.ref], ['dia', 'order_8']);
-  assert.equal(eventAction(ev('order_created', { ...order, first_order_item: { variant_id: 99 } }), VARIANTS).type, 'ignored'); // otro producto de la tienda
-  assert.equal(eventAction(ev('order_created', { ...order, status: 'pending' }), VARIANTS).type, 'pending');
-  assert.deepEqual(eventAction(ev('order_refunded', { status: 'refunded' }, { id: '7' }), VARIANTS), { type: 'refunded', paymentRef: 'order_7' });
-  assert.equal(eventAction(ev('order_refunded', { status: 'partial_refund' }, { id: '7' }), VARIANTS).type, 'ignored'); // parcial
+  // El producto sale del producto pagado, no de los metadatos (el link público del producto también vende).
+  const trampa = eventAction(done({ meta: { user_id: 'u1', product: 'regalo', ref: 'x' }, order: 'ord_8', tran: 'tran_8' }), PRODS);
+  assert.deepEqual([trampa.product, trampa.ref], ['dia', 'ord_8']);
+  assert.equal(eventAction(done({ product: 'prod_otro' }), PRODS).type, 'ignored'); // otro producto de la tienda
+  assert.equal(eventAction(done({ status: 'pending' }), PRODS).type, 'pending');
+  // Plus: el checkout trae la suscripción (objeto o id) y el primer cobro.
+  const plus = eventAction(done({ product: 'prod_plus', ref, meta: { user_id: 'u1' }, sub: { id: 'sub_9', status: 'active' } }), PRODS);
+  assert.deepEqual([plus.product, plus.subscription, plus.paymentRef], ['plus', 'sub_9', 'tran_7']);
+  assert.equal(eventAction(done({ product: 'prod_plus', sub: 'sub_9' }), PRODS).subscription, 'sub_9');
 
-  const sub = (status, extra = {}) =>
-    eventAction(ev('subscription_updated', { status, variant_id: 11, renews_at: '2027-01-15T12:00:00.000000Z', ...extra }, { id: '55', custom: { user_id: 'u1' } }), VARIANTS);
-  assert.deepEqual(sub('active'), { type: 'renewed', subscription: '55', userId: 'u1', ref: '', until: Date.UTC(2027, 0, 15, 12), first: true });
-  assert.deepEqual(sub('cancelled'), { type: 'plus_renews', subscription: '55', userId: 'u1', renews: false });
-  assert.equal(sub('past_due').type, 'ignored');
-  for (const st of ['expired', 'unpaid', 'paused']) assert.equal(sub(st).type, 'plus_ended');
-  assert.equal(sub('active', { variant_id: 22 }).type, 'ignored'); // no es la suscripción de Plus
+  // Cada cobro de Plus (también el primero) llega como subscription.paid, con su transacción y el fin del periodo.
+  const until = Date.UTC(2027, 0, 15, 12);
+  assert.deepEqual(eventAction(subEv('subscription.paid', 'active', { last_transaction_id: 'tran_2', last_transaction: { id: 'tran_2', amount_paid: 499 } }), PRODS), {
+    type: 'renewed', subscription: 'sub_9', userId: 'u1', ref: 'tran_2', until, amount: 499, currency: 'usd',
+  });
+  assert.deepEqual(eventAction(subEv('subscription.active', 'active'), PRODS), { type: 'renewed', subscription: 'sub_9', userId: 'u1', ref: '', until });
+  assert.deepEqual(eventAction(subEv('subscription.scheduled_cancel', 'scheduled_cancel'), PRODS), { type: 'plus_renews', subscription: 'sub_9', userId: 'u1', renews: false });
+  assert.deepEqual(eventAction(subEv('subscription.update', 'scheduled_cancel'), PRODS).type, 'plus_renews');
+  assert.equal(eventAction(subEv('subscription.past_due', 'past_due'), PRODS).type, 'ignored'); // Creem reintenta
+  for (const [type, st] of [['subscription.canceled', 'canceled'], ['subscription.expired', 'active'], ['subscription.paused', 'paused'], ['subscription.unpaid', 'unpaid']]) {
+    assert.equal(eventAction(subEv(type, st), PRODS).type, 'plus_ended', type);
+  }
+  assert.equal(eventAction(subEv('subscription.paid', 'active', { product: { id: 'prod_dia' } }), PRODS).type, 'ignored'); // no es Plus
 
-  const inv = (billing_reason) => eventAction(ev('subscription_payment_success', { subscription_id: 55, billing_reason, total_usd: 299 }, { id: '3' }), VARIANTS);
-  const renewal = inv('renewal');
-  assert.deepEqual([renewal.type, renewal.subscription, renewal.ref, renewal.amount, renewal.first], ['renewed', '55', 'invoice_3', 299, false]);
-  assert.equal(inv('initial').first, true); // el primer mes ya quedó con order_created
-  assert.deepEqual(eventAction(ev('subscription_payment_refunded', { subscription_id: 55, status: 'refunded' }), VARIANTS), { type: 'plus_ended', subscription: '55', userId: '' });
-  assert.equal(eventAction(ev('subscription_payment_failed', {}), VARIANTS).type, 'ignored');
-  assert.equal(eventAction(ev('license_key_created', {}), VARIANTS).type, 'ignored');
+  // Reembolso completo: por la transacción y el pedido. Uno parcial no deshace la compra.
+  const refund = (status, refund_amount) =>
+    eventAction(ev('refund.created', { id: 'ref_1', object: 'refund', status: 'succeeded', refund_amount, transaction: { id: 'tran_7', order: 'ord_7', amount_paid: 299, status } }), PRODS);
+  assert.deepEqual(refund('refunded', 299), { type: 'refunded', paymentRefs: ['tran_7', 'ord_7'] });
+  assert.equal(refund('partialRefund', 100).type, 'ignored');
+  assert.deepEqual(eventAction(ev('dispute.created', { id: 'dis_1', transaction: 'tran_7', order: 'ord_7' }), PRODS), { type: 'refunded', paymentRefs: ['tran_7', 'ord_7'] });
+  assert.equal(eventAction(ev('credits.granted', {}), PRODS).type, 'ignored');
 });
 
-test('checkout: precio, variante y datos en el pago; vuelve al mismo dominio con su referencia', async () => {
+test('checkout: producto, referencia y datos en el pago; vuelve al mismo dominio; Plus se cancela y se retoma', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url, init, body: init.body && JSON.parse(init.body) });
-    if (url.endsWith('/stores')) return { ok: true, json: async () => ({ data: [{ id: 77, attributes: { name: 'Tiempo' } }] }) };
-    return { ok: true, json: async () => ({ data: { id: 'abc', attributes: { url: 'https://tiempo.lemonsqueezy.com/checkout/custom/abc', test_mode: true } } }) };
+    if (url.endsWith('/checkouts')) return { ok: true, json: async () => ({ id: 'ch_1', checkout_url: 'https://checkout.creem.io/ch_1', mode: 'test', status: 'pending' }) };
+    return { ok: true, json: async () => ({ id: 'sub_9', status: 'active' }) };
   };
-  const t = Date.UTC(2026, 10, 15, 12);
-  const pay = createPayments({ apiKey: 'llave', webhookSecret: SECRET, variants: VARIANTS, fetchImpl, now: () => t });
+  const pay = createPayments({ apiKey: 'creem_k', webhookSecret: SECRET, products: PRODS, fetchImpl });
   assert.equal(pay.testMode, false);
-  const out = await pay.createCheckout({ userId: 'u1', product: 'dia', lifeNo: 3, origin: 'https://time.cc', lang: 'es' });
-  assert.equal(out.url, 'https://tiempo.lemonsqueezy.com/checkout/custom/abc');
+  const out = await pay.createCheckout({ userId: 'u1', product: 'dia', lifeNo: 3, origin: 'https://app.mylifetime.cc', lang: 'es' });
+  assert.equal(out.url, 'https://checkout.creem.io/ch_1');
   assert.match(out.ref, /^ck_[a-f0-9]{32}$/);
-  assert.equal(pay.testMode, true);
-  assert.equal(calls[0].url, 'https://api.lemonsqueezy.com/v1/stores'); // la tienda se descubre sola
-  const { url, init, body } = calls[1];
-  assert.equal(url, 'https://api.lemonsqueezy.com/v1/checkouts');
-  assert.equal(init.headers.Authorization, 'Bearer llave');
-  assert.equal(init.headers.Accept, 'application/vnd.api+json');
-  const a = body.data.attributes;
-  assert.equal(a.custom_price, PRODUCTS.dia.price);
-  assert.equal(a.product_options.name, '+4 días de vida');
-  assert.equal(a.product_options.redirect_url, `https://time.cc/?pago=ok&ck=${out.ref}`);
-  assert.deepEqual(a.checkout_data.custom, { user_id: 'u1', product: 'dia', life_no: '3', ref: out.ref });
-  assert.equal(a.expires_at, new Date(t + 6 * HOUR).toISOString());
-  assert.deepEqual(body.data.relationships.store.data, { type: 'stores', id: '77' });
-  assert.deepEqual(body.data.relationships.variant.data, { type: 'variants', id: '22' });
-
-  await pay.createCheckout({ userId: 'u1', product: 'plus', lifeNo: 1, origin: 'http://127.0.0.1:3000', lang: 'en' });
-  assert.equal(calls.length, 3); // la tienda ya quedó guardada
-  assert.equal(calls[2].body.data.attributes.product_options.name, 'Tiempo Plus (monthly)');
-  assert.equal(calls[2].body.data.relationships.variant.data.id, '11');
+  assert.equal(pay.testMode, true); // Creem dice en qué modalidad quedó el checkout
+  const { url, init, body } = calls[0];
+  assert.deepEqual([init.method, url], ['POST', 'https://api.creem.io/v1/checkouts']);
+  assert.equal(init.headers['x-api-key'], 'creem_k');
+  assert.deepEqual(body, {
+    product_id: 'prod_dia',
+    request_id: out.ref,
+    units: 1,
+    success_url: `https://app.mylifetime.cc/?pago=ok&ck=${out.ref}`,
+    metadata: { user_id: 'u1', product: 'dia', life_no: '3', ref: out.ref },
+  });
   await assert.rejects(pay.createCheckout({ userId: 'u1', product: 'nada', lifeNo: 1, origin: 'x', lang: 'en' }), { code: 'product' });
 
-  // Plus: cancelar la renovación es DELETE; retomarla, PATCH con cancelled: false.
-  await pay.setRenewal('55', false);
-  await pay.setRenewal('55', true);
-  assert.deepEqual([calls[3].init.method, calls[3].url], ['DELETE', 'https://api.lemonsqueezy.com/v1/subscriptions/55']);
-  assert.deepEqual([calls[4].init.method, calls[4].body.data.attributes], ['PATCH', { cancelled: false }]);
+  // Plus: cancelar la renovación la programa para el fin del periodo; retomarla es resume.
+  await pay.setRenewal('sub_9', false);
+  await pay.setRenewal('sub_9', true);
+  assert.deepEqual([calls[1].init.method, calls[1].url, calls[1].body], ['POST', 'https://api.creem.io/v1/subscriptions/sub_9/cancel', { mode: 'scheduled', onExecute: 'cancel' }]);
+  assert.deepEqual([calls[2].init.method, calls[2].url], ['POST', 'https://api.creem.io/v1/subscriptions/sub_9/resume']);
+
+  // Una llave de prueba usa la API de prueba.
+  const t = createPayments({ apiKey: 'creem_test_k', webhookSecret: SECRET, products: PRODS, fetchImpl });
+  await t.createCheckout({ userId: 'u1', product: 'plus', lifeNo: 1, origin: 'http://127.0.0.1:3000', lang: 'en' });
+  assert.equal(calls.at(-1).url, 'https://test-api.creem.io/v1/checkouts');
+  assert.equal(calls.at(-1).body.product_id, 'prod_plus');
+});
+
+test('check(): avisa si un producto no cuadra con la app (tipo, periodo, moneda y precio)', async () => {
+  const panel = {
+    prod_plus: { id: 'prod_plus', mode: 'test', price: 299, currency: 'USD', billing_type: 'recurring', billing_period: 'every-year', status: 'active' },
+    prod_dia: { id: 'prod_dia', mode: 'test', price: 299, currency: 'EUR', billing_type: 'recurring', status: 'active' },
+    prod_regalo: { id: 'prod_regalo', mode: 'test', price: 499, currency: 'USD', billing_type: 'onetime', status: 'archived' },
+  };
+  const fetchImpl = async (url) => {
+    const p = panel[url.split('/').pop()];
+    return p ? { ok: true, json: async () => p } : { ok: false, status: 404, json: async () => ({ message: 'not found', trace_id: 't1' }) };
+  };
+  const warns = [];
+  const log = { warn: (...a) => warns.push(a.join(' ')), info: () => {} };
+  const pay = createPayments({ apiKey: 'creem_k', webhookSecret: SECRET, products: PRODS, fetchImpl, log });
+  const problems = await pay.check();
+  const has = (re) => assert.ok(problems.some((p) => re.test(p)), re);
+  has(/prod_plus de plus cuesta US\$2\.99 .* US\$4\.99/);
+  has(/prod_plus de plus debe cobrarse cada mes/);
+  has(/prod_dia de dia debe ser de pago único/);
+  has(/prod_dia de dia está en EUR/);
+  has(/prod_regalo de regalo está archived/);
+  has(/prod_revivir de revivir no existe/);
+  assert.equal(pay.testMode, true);
+  assert.ok(warns.some((w) => w.startsWith('⚠ Creem:')));
+});
+
+test('Plus con Creem: el primer cobro llega dos veces (checkout y subscription.paid) y cuenta una sola', () => {
+  const { store, user } = setup();
+  const id = user('Nico');
+  const until = Date.UTC(2026, 11, 12, 12);
+  // a) el checkout llega primero
+  const a = paid(id, 'plus', { subscription: 'sub_a', paymentRef: 'tran_a1' });
+  store.fulfill(a);
+  store.renewPlus({ subscription: 'sub_a', userId: id, ref: 'tran_a1', until, amount: 499, currency: 'usd' });
+  store.renewPlus({ subscription: 'sub_a', userId: id, ref: 'tran_a1', until, amount: 499, currency: 'usd' }); // aviso repetido
+  assert.equal(store.storeInfo(id).purchases.filter((p) => p.product === 'plus').length, 1);
+  assert.equal(store.state(id).plus.until, until + 2 * DAY);
+  // b) en otra cuenta, subscription.paid llega antes que el checkout: la vuelta del pago igual la encuentra
+  const otro = user('Pipe');
+  store.renewPlus({ subscription: 'sub_b', userId: otro, ref: 'tran_b1', until, amount: 499, currency: 'usd' });
+  const b = paid(otro, 'plus', { subscription: 'sub_b', paymentRef: 'tran_b1' });
+  assert.equal(store.fulfill(b).product, 'plus');
+  assert.equal(store.storeInfo(otro).purchases.length, 1);
+  assert.equal(store.purchaseOf(otro, b.ref).status, 'pagado');
+  assert.equal(store.fulfill(b).duplicate, true);
+  // el mes siguiente es otra compra; y su reembolso termina Plus
+  store.renewPlus({ subscription: 'sub_a', userId: id, ref: 'tran_a2', until: until + 30 * DAY, amount: 499, currency: 'usd' });
+  assert.equal(store.storeInfo(id).purchases.filter((p) => p.product === 'plus').length, 2);
+  assert.equal(store.refund('tran_a2'), 1);
+  assert.equal(store.state(id).plus.active, false);
 });
 
 test('el mismo checkout pagado dos veces son dos compras; el aviso repetido de una, no', () => {
@@ -257,7 +335,7 @@ test('Plus: 15 charlas y 3 réplicas, Revivir gratis al mes, renovación y fin; 
   assert.equal(store.judgeInput(id, store.openDay(id, { text: 'x' }).id).plus, true); // Guardián Plus
 
   const until = now() + 30 * DAY;
-  store.renewPlus({ subscription: '1', ref: 'invoice_1', until, first: true });
+  store.renewPlus({ subscription: '1', ref: 'tran_1', until });
   assert.equal(store.state(id).plus.until, until + 2 * DAY);
   store.setPlusRenews({ subscription: '1', renews: false });
   assert.equal(store.state(id).plus.renews, false);

@@ -14,7 +14,7 @@ const WAGE_CO = Number(meta('min-wage')) || 1_750_905;
 const WAGE_US_HOURLY = Number(meta('min-wage-us')) || 14;
 const DAYS_PER_DAY = Number(meta('days-per-day')) || 7; // charlas con el Guardián por fecha
 const VERSION = meta('app-version') || 'dev';
-const PAYMENTS = meta('payments') === '1'; // la tienda (Lemon Squeezy) está configurada en el servidor
+const PAYMENTS = meta('payments') === '1'; // la tienda (Creem) está configurada en el servidor
 // Precios en centavos de dólar: "plus=299;dia=99;…" (los define el servidor)
 const PRICES = Object.fromEntries(
   (meta('prices') || '').split(';').map((kv) => kv.split('=')).filter(([k, v]) => k && Number(v)).map(([k, v]) => [k, Number(v)]),
@@ -114,7 +114,7 @@ if (dayOnLoad) history.replaceState(null, '', location.pathname);
 let trialOnLoad = location.hash === '#juicio';
 if (trialOnLoad) history.replaceState(null, '', location.pathname);
 
-// Vuelta del pago (Lemon Squeezy): /?pago=ok&ck=…. Lo comprado lo confirma el servidor, no esta URL.
+// Vuelta del pago (Creem): /?pago=ok&ck=…. Lo comprado lo confirma el servidor, no esta URL.
 let payReturn = null;
 {
   const qs = new URLSearchParams(location.search);
@@ -1796,7 +1796,7 @@ function openTrialFromNotice() {
   setTimeout(() => (S.trial ? openTrial(S.trial.id) : openRank('juicios')), 260);
 }
 
-/* ───────── tienda: Plus, +1 día, regalos y Revivir (Lemon Squeezy) ───────── */
+/* ───────── tienda: Plus, +4 días, regalos y Revivir (Creem) ───────── */
 
 let storeData = null;
 let openGift = null; // código cuyo QR está a la vista
@@ -1888,7 +1888,7 @@ function renderStore() {
   $('#store-gifts').replaceChildren(...gifts.map(giftRow));
 }
 
-/** Al pago de Lemon Squeezy (redirección). Lo comprado llega por el webhook, nunca por esta página. */
+/** Al pago de Creem (redirección). Lo comprado llega por el webhook, nunca por esta página. */
 async function buy(product, btn) {
   if (btn) btn.disabled = true;
   try {
@@ -1933,7 +1933,7 @@ async function revive() {
   buy('revivir', $('#btn-revive'));
 }
 
-/** Volvió del pago: cuando el webhook de Lemon Squeezy lo confirma en el servidor, se celebra. */
+/** Volvió del pago: cuando el webhook de Creem lo confirma en el servidor, se celebra. */
 async function handlePayReturn() {
   const r = payReturn;
   payReturn = null;

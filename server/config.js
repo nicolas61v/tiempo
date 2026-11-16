@@ -23,17 +23,17 @@ export const config = {
   usMinWageHourly: Number(env.MIN_WAGE_US_HOURLY) || 14,
   // Clave de la página /admin. Sin ella, el panel de administración queda apagado.
   adminToken: env.ADMIN_TOKEN || '',
-  // Pagos con Lemon Squeezy (pasos en el README). Sin la llave, el secreto del webhook y las 4 variantes,
-  // la tienda queda apagada. La tienda se descubre sola si la llave ve una sola.
-  lemonsqueezy: {
-    apiKey: (env.LEMONSQUEEZY_API_KEY || '').trim(),
-    webhookSecret: (env.LEMONSQUEEZY_WEBHOOK_SECRET || '').trim(),
-    storeId: (env.LEMONSQUEEZY_STORE_ID || '').trim(),
-    variants: {
-      plus: (env.LEMONSQUEEZY_VARIANT_PLUS || '').trim(),
-      dia: (env.LEMONSQUEEZY_VARIANT_DIA || '').trim(),
-      regalo: (env.LEMONSQUEEZY_VARIANT_REGALO || '').trim(),
-      revivir: (env.LEMONSQUEEZY_VARIANT_REVIVIR || '').trim(),
+  // Pagos con Creem (pasos en el README). Sin la llave, el secreto del webhook y los 4 productos, la tienda queda
+  // apagada. La modalidad (prueba o real) sale de la llave (creem_test_…) o de CREEM_TEST_MODE = 1 / 0.
+  creem: {
+    apiKey: (env.CREEM_API_KEY || '').trim(),
+    webhookSecret: (env.CREEM_WEBHOOK_SECRET || '').trim(),
+    testMode: (env.CREEM_TEST_MODE || '').trim(),
+    products: {
+      plus: (env.CREEM_PRODUCT_PLUS || '').trim(),
+      dia: (env.CREEM_PRODUCT_DIA || '').trim(),
+      regalo: (env.CREEM_PRODUCT_REGALO || '').trim(),
+      revivir: (env.CREEM_PRODUCT_REVIVIR || '').trim(),
     },
   },
   // Pesos por dólar: quien usa la app en dólares ve y escribe la plata en USD (por dentro todo es en pesos).

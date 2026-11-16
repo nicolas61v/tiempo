@@ -30,10 +30,10 @@ const push = createPush(store, { ...config.vapid, log });
 const judge = createJudge({ log, usdCop: config.usdCop });
 if (!judge.enabled) log.warn('⚠ Guardián apagado: define ANTHROPIC_API_KEY para activar "Mi día".');
 if (!config.adminToken) log.warn('⚠ Panel /admin apagado: define ADMIN_TOKEN para activarlo.');
-const payments = createPayments({ ...config.lemonsqueezy, log });
+const payments = createPayments({ ...config.creem, log });
 if (!payments.enabled) log.warn(`⚠ Tienda apagada: faltan ${payments.missing.join(', ')} (pasos en el README).`);
-// Revisa la llave y las variantes en Lemon Squeezy; si falta alguna, deja sus ids en los logs.
-payments.check().catch((err) => log.warn('revisión de Lemon Squeezy:', err.message));
+// Revisa la llave y los productos en Creem; lo que no cuadre queda en los logs.
+payments.check().catch((err) => log.warn('revisión de Creem:', err.message));
 
 // Mantenimiento: devuelve códigos no reclamados, cierra días abandonados y juicios vencidos.
 // Corre también al arrancar: tras un deploy, lo que se venció mientras tanto se resuelve de una vez.
@@ -109,7 +109,7 @@ function readJson(req, limit = 8192) {
   });
 }
 
-/** Cuerpo crudo (el webhook de Lemon Squeezy se verifica byte a byte: no se puede parsear antes). */
+/** Cuerpo crudo (el webhook de Creem se verifica byte a byte: no se puede parsear antes). */
 function readRaw(req, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -203,8 +203,11 @@ function applyPayment(a) {
       return store.endPlus(a);
     case 'plus_renews':
       return store.setPlusRenews(a);
-    case 'refunded':
-      return { refunded: store.refund(a.paymentRef) };
+    case 'refunded': {
+      // Un reembolso trae la transacción y el pedido: se busca por los dos (refund es idempotente).
+      const refs = [...new Set([...(a.paymentRefs || []), a.paymentRef].filter(Boolean))];
+      return { refunded: refs.reduce((n, r) => n + store.refund(r), 0) };
+    }
     default:
       return { ignored: true };
   }
@@ -237,13 +240,13 @@ async function api(req, res, p, qs) {
   const m = req.method;
   const lang = langOf(req);
 
-  // Avisos de Lemon Squeezy: sin llave, pero con firma (se rechaza todo lo que no venga de Lemon Squeezy).
-  if (m === 'POST' && p === '/api/lemonsqueezy/webhook') {
+  // Avisos de Creem: sin llave, pero con firma (se rechaza todo lo que no venga de Creem).
+  if (m === 'POST' && p === '/api/creem/webhook') {
     if (!payments.webhookReady) throw new AppError(404, 'not_found', 'Ruta desconocida', 'Unknown route');
     const raw = await readRaw(req, 1_000_000);
-    const ev = payments.parseWebhook(raw, req.headers['x-signature']);
+    const ev = payments.parseWebhook(raw, req.headers['creem-signature']);
     const r = applyPayment(ev.action);
-    log.info(`lemonsqueezy ${ev.type} → ${ev.action.type}${r?.duplicate ? ' (repetido)' : ''}${r?.unknown ? ' (sin reloj)' : ''}`);
+    log.info(`creem ${ev.type} ${ev.id} → ${ev.action.type}${r?.duplicate ? ' (repetido)' : ''}${r?.unknown ? ' (sin reloj)' : ''}`);
     return send(res, 200, { received: true });
   }
 
@@ -337,7 +340,7 @@ async function api(req, res, p, qs) {
   if (transfer && m === 'GET') return send(res, 200, store.transferStatus(id, transfer[1]));
   if (transfer && m === 'DELETE') return send(res, 200, store.cancelTransfer(id, transfer[1]));
 
-  // Tienda: Plus, +1 día, regalos y Revivir (Lemon Squeezy)
+  // Tienda: Plus, +4 días, regalos y Revivir (Creem)
   if (m === 'GET' && p === '/api/store') return send(res, 200, storeView(id));
   if (m === 'POST' && p === '/api/checkout') {
     if (!payments.enabled) throw new AppError(503, 'payments_off', 'Los pagos aún no están activos', "Payments aren't available yet");
