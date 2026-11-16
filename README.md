@@ -4,9 +4,15 @@ Un reloj de vida. Empiezas con **1 semana**. Vivir cuesta un día por día. Cada
 
 ## La economía
 
-Un solo axioma: **1 día de vida = 1 salario mínimo diario** (SMMLV 2026 $1.750.905 ÷ 30 = $58.364). Todo está en `public/economy.js`, que comparten el servidor y la app.
+Un solo axioma: **1 día de vida = 1 día de salario mínimo del país donde vives** (salario mínimo mensual ÷ 30). Por ahora hay dos:
 
-**Moneda**: cada quien ve y escribe la plata en **COP** o **USD** (por defecto según su país: Colombia en pesos, el resto en dólares; se cambia en Ajustes). Por dentro todo se guarda en pesos: una sola economía, así nadie gana tiempo más fácil por su moneda. En dólares, 1 día de vida ≈ US$14,59 con `USD_COP` = 4.000.
+- **Colombia**: SMMLV 2026 $1.750.905 ÷ 30 = **$58.364** (unos US$14,59).
+- **Estados Unidos**: US$14 la hora × 40 h × 52 semanas ÷ 12 = US$2.426,67 al mes ÷ 30 = **US$80,89**.
+- Los demás países usan, por ahora, el de Colombia.
+
+Todo está en `public/economy.js` (`wageFor`), que comparten el servidor y la app.
+
+**Moneda**: cada quien ve y escribe la plata en **COP** o **USD** (por defecto según su país: Colombia en pesos, el resto en dólares; se cambia en Ajustes). Por dentro todo se guarda en pesos y se convierte con `USD_COP` (4.000): la moneda no cambia cuánto vale tu día, eso lo decide tu país.
 
 | Categoría | Conversión | Prueba |
 |---|---|---|
@@ -41,7 +47,7 @@ Lo que no encaja (descanso, ocio, redes…) no suma ni resta: ese tiempo ya se f
   - *Culpable*: pierde lo que estaba en juego (siempre le queda 1 h), que se reparte entre quienes votaron culpable (o entre quienes lo citaron, si no se defendió); pierde la confianza en sus ingresos y sale del ranking 30 días. *Inocente*: conserva lo que estaba en disputa y gana 1 día, igual que cada uno de los que votaron inocente. *Sin quórum*: libre. Después de cualquier juicio, nadie puede volver a juzgarlo en 14 días.
   - **El Guardián también cita a juicio**: si al juzgar un día ve algo serio (insiste con cosas imposibles, ingresos que no cuadran con su historia), lo cita y con eso basta; la gente se puede sumar. Solo cita a quien está en el ranking.
   - **Un voto por persona al día** (citar o decidir un veredicto), contra el spam. Los premios del jurado no cuentan en el ranking. Las fotos de las pruebas se borran al cerrar el juicio.
-- **Tienda (Lemon Squeezy)**: **Plus** US$2,99/mes (15 charlas al día, 3 réplicas, Guardián Sonnet, 1 Revivir gratis al mes; nunca da tiempo), **Revivir** US$0,99 (en cero: vuelves con 1 día conservando vida, récord e historial), **+1 día** US$0,99 (máximo uno por semana, nunca en la última hora) y **Regalo de 1 semana** US$3,99 (código + QR; cada persona recibe máximo uno comprado por semana). Precios en `PRODUCTS` de `server/payments.js`.
+- **Tienda (Lemon Squeezy)**: **Plus** US$4,99/mes (15 charlas al día, 3 réplicas, Guardián Sonnet, 1 Revivir gratis al mes; nunca da tiempo), **Revivir** US$4,99 (en cero: vuelves con 1 día conservando vida, récord e historial), **+4 días** US$2,99 (una compra por semana, nunca en la última hora) y **Regalo de 1 semana** US$4,99 (código + QR; cada persona recibe máximo uno comprado por semana). Precios en `PRODUCTS` de `server/payments.js`.
 - **Transferir**: creas un código de 6 letras + QR por X tiempo. El tiempo sale de tu reloj al instante; quien lo escanea desde la app (Transferir → Recibir → Escanear QR) o escribe el código lo recibe. Si nadie lo reclama en 10 minutos, vuelve solo.
 - **Alertas push** a 24 h, 1 h, 10 min y al llegar a cero, aunque la app esté cerrada.
 - **Tu llave en QR**: Ajustes → Tu llave → Mostrar QR; en el otro dispositivo, Ajustes → escanear llave. Y si alguien la vio, **Cambiar tu llave** da una nueva para el mismo reloj.
@@ -87,10 +93,10 @@ No actives *Serverless / App Sleeping*: el servidor tiene que estar despierto pa
 Lemon Squeezy es el *comerciante registrado*: cobra con tarjeta, maneja los impuestos de cada país y te paga por banco o PayPal, así que no hace falta una cuenta de Stripe (que no abre en Colombia). Empieza en **modo de prueba** (interruptor *Test mode* del panel).
 
 1. **Productos**: en *Products → New product* crea 4, con estos nombres y precios (la app cobra lo de `PRODUCTS`; si en el panel pones otro precio, el link público de la tienda vendería a ese):
-   - **Tiempo Plus**: *Subscription*, US$2,99 cada mes.
-   - **+1 día de vida**: *Single payment*, US$0,99.
-   - **Regalo: 1 semana de vida**: *Single payment*, US$3,99.
-   - **Revivir**: *Single payment*, US$0,99.
+   - **Tiempo Plus**: *Subscription*, US$4,99 cada mes.
+   - **+4 días de vida**: *Single payment*, US$2,99.
+   - **Regalo: 1 semana de vida**: *Single payment*, US$4,99.
+   - **Revivir**: *Single payment*, US$4,99.
 2. **Llave de la API**: *Settings → API → +* → copia la llave → Railway → *Variables* → `LEMONSQUEEZY_API_KEY`.
 3. **Webhook**: *Settings → Webhooks → +*:
    - URL: `https://app.mylifetime.cc/api/lemonsqueezy/webhook`
@@ -117,7 +123,8 @@ Seguridad: el tiempo y el Plus se acreditan solo por el webhook con firma verifi
 | `JUDGE_MODEL` | `claude-haiku-5-5` | Modelo del Guardián |
 | `JUDGE_MODEL_PLUS` | `claude-sonnet-5-5` | Modelo del Guardián para quien tiene Plus (con respaldo automático si declina) |
 | `USD_COP` | `4000` | Pesos por dólar: quien usa la app en USD ve y escribe en dólares, y el Guardián convierte |
-| `MIN_WAGE_MONTHLY` | `1750905` | Salario mínimo mensual (actualízalo cada año) |
+| `MIN_WAGE_MONTHLY` | `1750905` | Salario mínimo mensual de Colombia, en pesos (actualízalo cada año) |
+| `MIN_WAGE_US_HOURLY` | `14` | Salario mínimo por hora en Estados Unidos, en dólares (el federal es US$7,25; muchos estados pagan US$14–17) |
 | `INITIAL_SECONDS` | `604800` | Tiempo con el que naces (1 semana) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | auto | Se generan una vez y se guardan en la base |
 | `VAPID_SUBJECT` | `https://<RAILWAY_PUBLIC_DOMAIN>` | Contacto para los servicios push |

@@ -6,8 +6,9 @@
 ## Qué es y qué ya existe
 
 PWA móvil "Tiempo": un reloj de vida inspirado en *El precio del mañana*. Empiezas con 1 semana, vivir
-cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 salario mínimo diario de Colombia**
-(SMMLV 2026 $1.750.905 / 30 = $58.364).
+cuesta 1 día por día y, si llega a cero, se acabó. **1 día de vida = 1 día de salario mínimo del país donde vives**:
+Colombia (SMMLV 2026 $1.750.905 / 30 = $58.364) o Estados Unidos (US$14/h × 40 h × 52 / 12 / 30 = US$80,89).
+Los demás países usan, por ahora, el de Colombia (pedido del dueño, 2026-11-16).
 
 - **Stack**: Node 24 sin framework, SQLite integrado (`node:sqlite`) con migraciones versionadas
   (`MIGRATIONS` en `server/store.js`, hoy v1–v11), `web-push` y el SDK de Anthropic. Frontend vanilla sin
@@ -100,8 +101,8 @@ jugadores contra quien sea sospechosamente rico en tiempo.
   Lemon Squeezy no deja buscar un pedido por checkout: al volver del pago, la app solo espera el webhook (la
   referencia `ck_…` viaja en los datos del pago y en la URL de vuelta). Si el mismo checkout se paga dos veces,
   son dos compras. Al arrancar, `check()` revisa llave, tienda y variantes y deja en los logs lo que falte.
-- **Productos** (precios en `PRODUCTS`): Plus US$2,99/mes · Revivir US$0,99 (1 día, conserva vida, récord e
-  historial) · +1 día US$0,99 (uno por semana, nunca en la última hora) · Regalo de 1 semana US$3,99 (código + QR
+- **Productos** (precios en `PRODUCTS`, decididos por el dueño el 2026-11-16): Plus US$4,99/mes · Revivir US$4,99 (1 día,
+  conserva vida, récord e historial) · +4 días US$2,99 (una compra por semana, nunca en la última hora) · Regalo de 1 semana US$4,99 (código + QR
   por el mismo flujo de transferencias; uno comprado por persona y semana). Lo comprado nunca cuenta en el
   ranking. Plus nunca da tiempo. Renacer gratis sigue siendo el botón principal en cero.
 - **Límites de dinero** (`MONEY` en `economy.js`): 7 días de vida por semana en tu palabra, 30 para todos. El
@@ -127,7 +128,7 @@ jugadores contra quien sea sospechosamente rico en tiempo.
 
 1. El dueño crea los 4 productos en Lemon Squeezy y pega la llave, el secreto del webhook y las 4 variantes
    **de prueba** en Railway (pasos en el README).
-2. Probar en producción con la tarjeta 4242: Plus, +1 día, regalo (reclamarlo desde otro reloj) y Revivir
+2. Probar en producción con la tarjeta 4242: Plus, +4 días, regalo (reclamarlo desde otro reloj) y Revivir
    (con un reloj de prueba en cero). Cancelar y retomar Plus. Un reembolso desde el panel de Lemon Squeezy debe
    descontar el tiempo. Nada de esto se probó contra la API real todavía (solo con pruebas y un servidor local).
 3. Probar "Mi día" con la API real: un día imposible, un ingreso grande sin prueba (debe pedir comprobante) y
@@ -136,7 +137,7 @@ jugadores contra quien sea sospechosamente rico en tiempo.
 5. Cuando todo esté bien, activar la tienda en Lemon Squeezy (verificación de identidad y revisión) y pasar a la
    llave, el webhook y las variantes de modo real.
 
-**Ojo**: Lemon Squeezy cobra 5 % + US$0,50 por venta: en los productos de US$0,99 se queda con más de la mitad.
+**Ojo**: Lemon Squeezy cobra 5 % + US$0,50 por venta (+1,5 % si el cliente no es de EE. UU.): por eso el dueño subió los precios.
 Y desde enero de 2026 su futuro está atado a *Stripe Managed Payments*: sigue funcionando, pero hay que confirmar
 que acepte la tienda y que pague a Colombia (lista de países en su documentación).
 
@@ -146,11 +147,8 @@ Hecho: inglés y español (inglés por defecto; selector en Ajustes). Cómo se a
 en inglés en `index.html` con `data-i18n="clave"` y en español en `ES_STATIC`; el dinámico va en `EN` y `ES`
 de `public/i18n.js` y se usa con `T('clave')`. `test/i18n.test.js` falla si falta una clave en algún idioma.
 
-- **Salario mínimo por país**: hoy es fijo de Colombia (`config.minWage`, meta `min-wage`). Con otros
-  países, 1 día = salario mínimo diario de **su** país. El país se elige en Ajustes y se guarda en `users`
-  (migración). Se cruza con el precio de los pagos: ¿USD único o por país? (decisión del dueño).
-- La moneda sigue fija en COP (también en inglés, donde se ve como "$58,364"): cambia junto con el país.
-  Mientras tanto, a quien use la app en inglés y cuente plata en dólares, el Guardián la toma como pesos.
+- **Salario mínimo por país**: hecho para Colombia y Estados Unidos (`wageFor` en `economy.js`; `MIN_WAGE_MONTHLY` y
+  `MIN_WAGE_US_HOURLY`). Falta agregar más países (cada uno con su salario y su fuente) cuando el dueño lo pida.
 
 ### 4. Antes de la promoción
 
@@ -164,8 +162,8 @@ de `public/i18n.js` y se usa con `T('clave')`. `test/i18n.test.js` falla si falt
 
 - ~~Procesador de pagos~~: Lemon Squeezy (2026-11-15; primero fue Stripe, que no deja cobrar desde Colombia).
   Falta que aprueben la tienda.
-- ¿Subir los productos de US$0,99? Con la comisión de Lemon Squeezy dejan unos US$0,44.
-- Precios: los de `PRODUCTS` son una propuesta (Plus 2,99/mes, Revivir 0,99, +1 día 0,99, Regalo 3,99). ¿USD único o por país?
+- ~~Precios~~: Plus 4,99/mes, +4 días 2,99, Revivir 4,99, Regalo 4,99 (2026-11-16). Pendiente: mejorar el modelo de negocio.
+- ¿Salario de EE. UU.? Hoy US$14/h (lo dijo el dueño); el mínimo federal es US$7,25 y varía por estado.
 - Límites propuestos: dinero 7 días/semana en tu palabra y 30 para todos; juicio con 3 acusadores, 3 votos de quórum y 2/3 para culpable.
 
 ## Mercado (investigado el 2026-11-13)
