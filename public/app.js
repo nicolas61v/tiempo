@@ -2760,7 +2760,30 @@ addEventListener('online', refresh);
 
 /* ───────── arranque ───────── */
 
+/** Términos, privacidad, reembolsos y el correo de ayuda (en la tienda y en Ajustes; Creem lo pide dentro de la app). */
+function fillLegal() {
+  const site = `https://mylifetime.cc${LANG === 'es' ? '/es' : ''}`;
+  const links = [
+    [T('legal.terms'), `${site}/terms`],
+    [T('legal.privacy'), `${site}/privacy`],
+    [T('legal.refunds'), `${site}/refunds`],
+    [`${T('legal.help')}: hello@mylifetime.cc`, 'mailto:hello@mylifetime.cc'],
+  ];
+  for (const p of document.querySelectorAll('[data-legal]')) {
+    p.replaceChildren(
+      ...links.flatMap(([text, href], i) => {
+        const a = document.createElement('a');
+        a.href = href;
+        a.textContent = text;
+        if (href.startsWith('https:')) Object.assign(a, { target: '_blank', rel: 'noopener' });
+        return i ? [' · ', a] : [a];
+      }),
+    );
+  }
+}
+
 translatePage({ n: DAYS_PER_DAY });
+fillLegal();
 fillCountries($('#intro-country'), guessCountry());
 render(); // pinta al instante con lo guardado; luego sincroniza
 registerSW();
