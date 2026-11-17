@@ -143,9 +143,20 @@ jugadores contra quien sea sospechosamente rico en tiempo.
      que reembolsarla a mano. Por eso no se publican los links de los productos ni la tienda pública de Creem.
    - Claude no puede escribir números de tarjeta (ni de prueba) en pagos que salen de producción: crea el pago con
      `POST /api/checkout` y la llave de un reloj de prueba, y el dueño paga.
-3. Probar "Mi día" con la API real: un día imposible, un ingreso grande sin prueba (debe pedir comprobante) y
-   con prueba (debe dar confianza). Esto gasta tokens.
-4. Modo real:
+3. ~~"Mi día" con la API real~~: probado el 2026-11-16.
+   - Un día imposible (9 h de gym, 10 h de cálculo) lo recortó a 2 h y 3 h y pidió fotos.
+   - US$1.000 sin prueba no los contó y pidió el comprobante.
+   - Un día normal sin fotos pidió la foto.
+   - Falta: un ingreso grande con un comprobante real (debe dar confianza).
+4. Listo para la revisión de Creem (2026-11-16), según su guía de revisión de cuentas:
+   - Landing: términos con uso aceptable y moderación con IA, y aviso de que Tiempo no está afiliado a Anthropic.
+   - App: aviso de Creem como comerciante registrado antes de pagar, y enlaces a Términos, Privacidad,
+     Reembolsos y `hello@mylifetime.cc` en la tienda y en Ajustes.
+   - Tienda de Creem: nombre "Tiempo" (slug `mylifetime`), logo y verde de la app en el checkout, y la tienda
+     pública apagada.
+   - Lo que hace el dueño: los "Detalles comerciales" (nombre completo y dirección), "Cambiar a modo en vivo",
+     la verificación de identidad y la cuenta de pago.
+5. Modo real:
    - Creem revisa la cuenta (*Cambiar a modo en vivo*: datos del negocio y verificación de identidad).
    - El dueño configura la cuenta de pago.
    - Se repiten en modo real los productos, la llave y el webhook, se cambian las 6 variables y se hace una compra
