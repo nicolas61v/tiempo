@@ -259,11 +259,24 @@ async function api(req, res, p, qs) {
     return send(res, 201, store.createUser({ nickname: b.nickname, deviceId: b.deviceId, ip: clientIp(req), lang, country: b.country, currency: b.currency }));
   }
 
-  if (m === 'GET' && p === '/api/admin/stats') {
+  if (p.startsWith('/api/admin/')) {
     if (!config.adminToken) throw new AppError(404, 'not_found', 'Ruta desconocida', 'Unknown route');
     if (!limitAdmin(clientIp(req))) throw new AppError(429, 'rate', 'Demasiados intentos, espera un minuto', 'Too many attempts, wait a minute');
     if (!isAdmin(req)) throw new AppError(401, 'admin', 'Clave de administrador incorrecta');
-    return send(res, 200, store.adminStats());
+    if (m === 'GET' && p === '/api/admin/stats') return send(res, 200, store.adminStats());
+    // Quien perdió su llave y había comprado: el reloj de esa compra, y una llave nueva para él.
+    if (m === 'GET' && p === '/api/admin/clock') {
+      const s = store.state(store.ownerOfPayment(qs.get('ref')));
+      return send(res, 200, { nickname: s.nickname, lifeNo: s.lifeNo, secondsLeft: Math.round((s.expiresAt - s.now) / 1000), plus: s.plus });
+    }
+    if (m === 'POST' && p === '/api/admin/rekey') {
+      const b = await readJson(req);
+      const uid = store.ownerOfPayment(b.ref);
+      const { token, state } = store.rotateToken(uid);
+      log.info(`admin: llave nueva para el reloj de la compra ${String(b.ref).trim()} (${state.nickname || 'sin nombre'})`);
+      return send(res, 200, { token, nickname: state.nickname });
+    }
+    throw new AppError(404, 'not_found', 'Ruta desconocida', 'Unknown route');
   }
   if (m === 'GET' && p === '/api/push/key') return send(res, 200, { publicKey: push.publicKey });
 

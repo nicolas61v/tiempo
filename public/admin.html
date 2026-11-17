@@ -34,6 +34,22 @@
       <p class="hint">Misma red (wifi o datos). Puede ser la misma persona o gente de la misma casa u oficina.</p>
       <div id="nets"></div>
 
+      <h2>Recuperar un reloj (llave nueva)</h2>
+      <p class="hint">
+        Para quien compró y perdió su llave. Antes, confirma en Creem que el correo que te escribe es el del pago. Abre ese pago
+        (la dirección termina en <code>tran_…</code>) o su suscripción (<code>sub_…</code>) y pega aquí esa referencia.
+      </p>
+      <form id="rekey-find">
+        <input id="rekey-ref" placeholder="tran_…, sub_… o ck_…" autocomplete="off" spellcheck="false" required>
+        <button type="submit">Buscar</button>
+      </form>
+      <div id="rekey-out" class="rekey" hidden>
+        <p id="rekey-clock"></p>
+        <button id="rekey-go" type="button">Dar llave nueva a este reloj</button>
+        <p class="hint" id="rekey-note" hidden>Mándasela por correo. La llave anterior dejó de servir; el reloj sigue igual.</p>
+        <code id="rekey-key" class="key"></code>
+      </div>
+
       <h2>Relojes</h2>
       <div class="scroll"><table id="users"></table></div>
     </section>

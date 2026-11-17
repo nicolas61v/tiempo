@@ -37,6 +37,10 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
     giftSet: st('UPDATE gifts SET status = ?, to_user = ?, done_at = ?, ledger_id = ? WHERE code = ?'),
     giftLastReceived: st(`SELECT MAX(done_at) AS at FROM gifts WHERE to_user = ? AND status = 'entregado'`),
     userBySub: st(`SELECT * FROM users WHERE plus_sub = ? AND plus_sub <> ''`),
+    // Cualquier compra (pagada o reembolsada) por su transacción o su checkout (también "ck_…:tran_…").
+    ownerOf: st(`SELECT user_id FROM purchases
+                 WHERE payment_ref = ? OR ref = ? OR substr(ref, 1, length(?) + 1) = ? || ':' OR substr(ref, -length(?) - 1) = ':' || ?
+                 ORDER BY id DESC LIMIT 1`),
     setPlus: st('UPDATE users SET plus_until = ?, plus_sub = ?, plus_renews = ? WHERE id = ?'),
     setRenews: st('UPDATE users SET plus_renews = ? WHERE id = ?'),
     setReviveAt: st('UPDATE users SET plus_revive_at = ? WHERE id = ?'),
@@ -271,6 +275,21 @@ export function payStore({ st, q, tx, must, now, snapshot, hooks, freeCode, aler
         }
         return list.length;
       });
+    },
+
+    /**
+     * De qué reloj es una compra, para /admin: quien perdió su llave escribe con su recibo de Creem y el dueño,
+     * con la transacción (tran_…), la suscripción (sub_…) o el checkout (ck_…), le da una llave nueva al mismo reloj.
+     */
+    ownerOfPayment(rawRef) {
+      const ref = String(rawRef || '').trim();
+      if (!/^(tran|sub|ck)_[A-Za-z0-9]{6,64}$/.test(ref)) {
+        throw err(400, 'ref', 'Escribe la transacción (tran_…), la suscripción (sub_…) o el checkout (ck_…) de Creem', 'Invalid reference');
+      }
+      const u = ref.startsWith('sub_') ? p.userBySub.get(ref) : null;
+      const id = u?.id || p.ownerOf.get(ref, ref, ref, ref, ref, ref)?.user_id;
+      if (!id || !q.byId.get(id)) throw err(404, 'not_found', 'Ninguna compra tiene esa referencia', 'No purchase has that reference');
+      return id;
     },
 
     /** Revivir gratis, una vez cada 30 días, para quien tiene Plus. */

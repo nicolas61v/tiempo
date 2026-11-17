@@ -214,6 +214,32 @@ test('el mismo checkout pagado dos veces son dos compras; el aviso repetido de u
   assert.equal(left(store, id), before);
 });
 
+test('quien perdió su llave: /admin encuentra su reloj por la compra y le da una llave nueva sin tocar el reloj', () => {
+  const { store } = setup();
+  const created = store.createUser({ nickname: 'Nico' });
+  const id = store.auth(created.token).id;
+  const otro = store.auth(store.createUser({ nickname: 'Pipe' }).token).id;
+  const dia = paid(id, 'dia', { paymentRef: 'tran_dia000001' });
+  store.fulfill(dia);
+  store.fulfill({ ...dia, paymentRef: 'tran_dia000002' }); // el mismo checkout pagado otra vez: "ck_…:tran_dia000002"
+  store.fulfill(paid(id, 'plus', { subscription: 'sub_nico000001', paymentRef: 'tran_plus00001' }));
+  store.fulfill(paid(otro, 'regalo', { paymentRef: 'tran_pipe00001' }));
+  store.refund('tran_dia000001'); // reembolsada, igual dice de quién es
+
+  for (const ref of ['tran_dia000001', 'tran_dia000002', 'tran_plus00001', 'sub_nico000001', dia.ref, ` ${dia.ref} `]) assert.equal(store.ownerOfPayment(ref), id, ref);
+  assert.equal(store.ownerOfPayment('tran_pipe00001'), otro);
+  assert.throws(() => store.ownerOfPayment('tran_noexiste'), { status: 404 });
+  for (const bad of ['', 'ord_1234567', 'tran_', "tran_x' OR 1=1", 'prod_abcdefg']) assert.throws(() => store.ownerOfPayment(bad), { status: 400 }, bad);
+
+  const before = store.state(id).expiresAt;
+  const plusBefore = store.state(id).plus;
+  const { token } = store.rotateToken(store.ownerOfPayment('sub_nico000001'));
+  assert.equal(store.auth(created.token), null); // la llave perdida deja de servir
+  assert.equal(store.auth(token).id, id);
+  assert.equal(store.state(id).expiresAt, before); // regla 1: el reloj no cambia
+  assert.deepEqual(store.state(id).plus, plusBefore);
+});
+
 /* ───────── lo que se compra ───────── */
 
 test('+4 días: se acreditan una sola vez aunque el aviso llegue repetido, y no cuentan en el ranking', () => {

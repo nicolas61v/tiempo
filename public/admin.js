@@ -99,6 +99,48 @@ async function load(key) {
   table(data.relojes);
 }
 
+/* Recuperar un reloj: buscar por la compra y darle una llave nueva (la vieja deja de servir; el reloj no cambia). */
+async function admin(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { Authorization: `Bearer ${sessionStorage.getItem(KEY) || ''}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
+  }).catch(() => null);
+  const data = res ? await res.json().catch(() => ({})) : { message: 'Sin conexión.' };
+  if (!res?.ok) throw new Error(data.message || 'No se pudo.');
+  return data;
+}
+
+let rekeyRef = '';
+$('#rekey-find').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  rekeyRef = $('#rekey-ref').value.trim();
+  $('#rekey-out').hidden = false;
+  $('#rekey-go').hidden = true;
+  $('#rekey-note').hidden = true;
+  $('#rekey-key').textContent = '';
+  $('#rekey-clock').textContent = 'Buscando…';
+  try {
+    const c = await admin('GET', `/api/admin/clock?ref=${encodeURIComponent(rekeyRef)}`);
+    const plus = c.plus?.active ? ` · Plus hasta ${dt.format(c.plus.until)}${c.plus.renews ? '' : ' (no se renueva)'}` : '';
+    $('#rekey-clock').textContent = `${c.nickname || '(sin nombre)'} · vida ${c.lifeNo} · le queda ${dur(c.secondsLeft)}${plus}`;
+    $('#rekey-go').hidden = false;
+  } catch (err) {
+    $('#rekey-clock').textContent = err.message;
+  }
+});
+$('#rekey-go').addEventListener('click', async () => {
+  $('#rekey-go').hidden = true;
+  try {
+    const r = await admin('POST', '/api/admin/rekey', { ref: rekeyRef });
+    $('#rekey-key').textContent = r.token;
+    $('#rekey-note').hidden = false;
+  } catch (err) {
+    $('#rekey-clock').textContent = err.message;
+  }
+});
+
 $('#login').addEventListener('submit', (e) => {
   e.preventDefault();
   load($('#key').value.trim());
