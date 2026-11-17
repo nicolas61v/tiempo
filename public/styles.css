@@ -30,6 +30,7 @@
   --green: #a3eb86; /* verde biche: pálido, con un toque de lima */
   --amber: #ffb547;
   --red: #ff4058;
+  --plus: #e2a6ff; /* lila de Tiempo Plus */
   --r: 18px;
   --sb: env(safe-area-inset-bottom, 0px);
   --st: env(safe-area-inset-top, 0px);
@@ -199,7 +200,7 @@ button { cursor: pointer; touch-action: manipulation; }
 .orb .ring {
   display: grid; place-items: center; width: 60px; height: 60px; border-radius: 50%;
   border: 1px solid var(--line); background: var(--raise); color: var(--ink);
-  transition: transform 0.12s ease, background-color 0.2s ease;
+  transition: transform 0.12s ease, background-color 0.2s ease, border-color 0.6s ease, color 0.6s ease, box-shadow 0.6s ease;
 }
 .orb .ring svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .orb:active .ring { transform: scale(0.93); background: rgba(255, 255, 255, 0.08); }
@@ -211,6 +212,21 @@ button { cursor: pointer; touch-action: manipulation; }
 }
 .orb-main .ring svg { width: 30px; height: 30px; stroke-width: 1.7; }
 .orb-main:active .ring { background: var(--green); }
+/* Con Plus, los tres botones llevan el lila de Plus, sutil: Dinero y Transferir se tiñen, y Mi día (que sigue
+   verde, es la acción principal) lleva un aro lila. */
+.is-plus .orb:not(.orb-main) { color: color-mix(in srgb, var(--plus) 62%, var(--muted)); }
+.is-plus .orb:not(.orb-main) .ring {
+  border-color: color-mix(in srgb, var(--plus) 42%, transparent);
+  background: color-mix(in srgb, var(--plus) 9%, transparent);
+  color: var(--plus);
+}
+.is-plus .orb:not(.orb-main):active .ring { background: color-mix(in srgb, var(--plus) 16%, transparent); }
+.is-plus .orb-main .ring {
+  box-shadow:
+    0 0 0 3px var(--bg),
+    0 0 0 4.5px color-mix(in srgb, var(--plus) 70%, transparent),
+    0 10px 34px -12px color-mix(in srgb, var(--plus) 50%, transparent);
+}
 .btn svg, .pill svg {
   width: 18px; height: 18px; flex: none;
   fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
@@ -630,7 +646,7 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .tags:empty { display: none; }
 .tag { white-space: nowrap; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--muted); background: rgba(255, 255, 255, 0.07); }
-.tag.plus { color: #e2a6ff; background: color-mix(in srgb, #e2a6ff 14%, transparent); }
+.tag.plus { color: var(--plus); background: color-mix(in srgb, var(--plus) 14%, transparent); }
 .tag.ok { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
 .tag.warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
 
@@ -657,12 +673,12 @@ dialog.sheet[open] .sheet-body { animation: rise 0.36s cubic-bezier(0.2, 0.9, 0.
 
 .plus-card {
   display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 18px;
-  border: 1px solid color-mix(in srgb, #e2a6ff 35%, transparent);
-  background: linear-gradient(160deg, color-mix(in srgb, #e2a6ff 10%, transparent), transparent 70%);
+  border: 1px solid color-mix(in srgb, var(--plus) 35%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--plus) 10%, transparent), transparent 70%);
 }
 .plus-card.on { border-color: color-mix(in srgb, var(--green) 40%, transparent); }
 .plus-name { font-size: 20px; font-weight: 400; letter-spacing: -0.01em; }
-.plus-name b { font-weight: 700; color: #e2a6ff; }
+.plus-name b { font-weight: 700; color: var(--plus); }
 .plus-status { color: var(--green); font-weight: 600; }
 .perks { display: flex; flex-direction: column; gap: 6px; padding: 0 0 0 2px; list-style: none; font-size: 14px; }
 .perks li::before { content: '✓'; margin-right: 8px; color: var(--green); font-weight: 700; }

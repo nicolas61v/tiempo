@@ -333,6 +333,7 @@ function render() {
 function renderExtras() {
   if (!S) return;
   const alive = S.expiresAt > now();
+  document.body.classList.toggle('is-plus', alive && Boolean(S.plus?.active)); // los botones de abajo en lila
   const league = $('#league');
   league.hidden = !alive || !S.league;
   if (!league.hidden) {
