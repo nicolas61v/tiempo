@@ -34,7 +34,7 @@ Los demás países usan, por ahora, el de Colombia (pedido del dueño, 2026-11-1
   - **Idiomas**: inglés (por defecto, decisión del dueño) y español; se cambia en Ajustes → Language y queda
     en el teléfono (`public/i18n.js`). El servidor responde errores, avisos push y al Guardián en el idioma
     de la app (encabezado `X-Lang`, columna `users.lang`). La economía sigue en pesos colombianos.
-  - **En producción desde el 2026-11-16**: pagos con Creem (tienda apagada hasta que el dueño ponga las llaves),
+  - **En producción desde el 2026-11-16**: pagos con Creem (tienda encendida en modo de prueba; falta el modo real),
     ranking con ligas y perfiles públicos, juicios del jurado, límites de dinero con confianza del Guardián, un
     Guardián que exige que el día sea humanamente posible y salario por país. Detalle en la tarea 2 y en el
     `README.md`. Migraciones v10 y v11 (solo agregan).
@@ -83,7 +83,7 @@ relojes del dominio viejo: nadie usaba la app todavía (decisión del dueño). D
 `app.mylifetime.cc` y **no se cambia** (regla 5). Los links con `?lang=es` (los de la landing en español) abren la
 app en español y lo dejan guardado.
 
-### 2. Pagos, ranking y juicios: en producción (falta probar los pagos con Creem)
+### 2. Pagos, ranking y juicios: en producción (pagos en modo de prueba; falta el modo real)
 
 Pedido del dueño (2026-11-15): Stripe en una rama aparte y "dejar todo listo para solo pegar la clave y el
 webhook"; ranking para ver quién va ganando más tiempo y **qué hace cada uno**; un límite a lo que se gana por
@@ -128,18 +128,35 @@ jugadores contra quien sea sospechosamente rico en tiempo.
 
 **Para publicarlo** (en este orden):
 
-1. El dueño crea los 4 productos en Creem **en modo de prueba** y pega la llave, el secreto del webhook y los 4
-   ids en Railway (pasos en el README).
-2. Probar en producción con la tarjeta 4111 1111 1111 1111: Plus, +4 días, regalo (reclamarlo desde otro reloj) y
-   Revivir (con un reloj de prueba en cero). Cancelar y retomar Plus. Un reembolso desde el panel de Creem debe
-   descontar el tiempo. Nada de esto se probó contra la API real todavía (solo con pruebas y un servidor local).
+1. ~~Productos, llave y webhook de prueba~~: hecho el 2026-11-16. La tienda de producción está **encendida en modo
+   de prueba**: en los logs sale `pagos con Creem listos (modo de prueba)`. Los 4 productos y el webhook "Tiempo
+   app" (18 eventos) están en Creem, y las 6 variables `CREEM_*` en Railway.
+2. Probado en producción el 2026-11-16 con la tarjeta 4111:
+   - El dueño compró Plus, +4 días y el regalo desde la app. Los tres llegaron como `→ paid`, y el primer cobro de
+     Plus (llega como `subscription.paid` y como `checkout.completed`) contó una vez.
+   - Un reembolso completo de +4 días desde el panel de Creem llegó como `refund.created → refunded`.
+   - El webhook rechaza los avisos sin firma o con firma falsa (400).
+   - **Falta**: Revivir desde la app (el reloj de prueba `prueba-pagos-revivir` ya está en cero), reclamar un
+     regalo desde otro reloj, y cancelar y retomar Plus.
+   - Una compra hecha desde el link público de un producto (por ejemplo, el botón "Prueba un pago de prueba" del
+     panel de Creem) no dice de qué reloj es. La app la anota como `pago ord_… sin reloj` y no acredita nada: hay
+     que reembolsarla a mano. Por eso no se publican los links de los productos ni la tienda pública de Creem.
+   - Claude no puede escribir números de tarjeta (ni de prueba) en pagos que salen de producción: crea el pago con
+     `POST /api/checkout` y la llave de un reloj de prueba, y el dueño paga.
 3. Probar "Mi día" con la API real: un día imposible, un ingreso grande sin prueba (debe pedir comprobante) y
    con prueba (debe dar confianza). Esto gasta tokens.
-4. Cuando todo esté bien: Creem revisa la cuenta, el dueño configura la cuenta de pago y se pasa a la llave, el
-   webhook y los productos de modo real.
+4. Modo real:
+   - Creem revisa la cuenta (*Cambiar a modo en vivo*: datos del negocio y verificación de identidad).
+   - El dueño configura la cuenta de pago.
+   - Se repiten en modo real los productos, la llave y el webhook, se cambian las 6 variables y se hace una compra
+     real pequeña con su reembolso.
+   - Cambiarle el nombre a la tienda en Creem: hoy es "https://mylifetime.cc/" y así sale en la página de pago.
+   - **Mientras la tienda esté en prueba, cualquiera con la tarjeta 4111 (es pública) saca tiempo gratis**: no
+     dejarla así más de lo necesario.
 
 **Ojo**: si Creem cambia la forma de sus eventos, el log `creem <evento> → <acción>` lo muestra; un evento que no
-entiende queda `ignored` y no acredita nada.
+entiende queda `ignored` y no acredita nada. Un reembolso dice cuántas compras deshizo (`→ refunded (1 compra
+deshecha)`): si dice 0, no encontró lo que había acreditado.
 
 ### 3. Idiomas: lo que falta
 
