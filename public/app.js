@@ -1952,7 +1952,11 @@ async function handlePayReturn() {
         if (st.product === 'regalo') {
           toast(T('pay.gift'));
           openStore(st.giftCode);
-        } else toast(T(`pay.${st.product}`));
+        } else {
+          toast(T(`pay.${st.product}`));
+          // Lo comprado vive en este reloj: que guarde la llave (sin ella pierde el reloj y lo que pagó).
+          setTimeout(() => openKeySheet(false, 'key.afterBuy'), 1200);
+        }
         return;
       }
     } catch (err) {
@@ -2300,10 +2304,10 @@ const graphemeCount = (s) =>
 
 let keyIsWelcome = false;
 
-function openKeySheet(welcome = false) {
+function openKeySheet(welcome = false, title = '') {
   keyIsWelcome = welcome;
   $('#key-full').textContent = saved.token || '';
-  $('#k-title').textContent = T(welcome ? 'key.welcome' : 'key.title');
+  $('#k-title').textContent = T(title || (welcome ? 'key.welcome' : 'key.title'));
   $('#k-done').textContent = T(welcome ? 'key.saved' : 'key.done');
   $('#key-qr').hidden = true; // escondido hasta que lo pida: que nadie lo fotografíe sin querer
   $('#k-qr').hidden = false;

@@ -108,7 +108,7 @@ No actives *Serverless / App Sleeping*: el servidor tiene que estar despierto pa
 5. Prueba en la app (Tienda) con la tarjeta `4111 1111 1111 1111`, cualquier fecha futura y cualquier CVC. La app muestra un aviso de "modo de prueba" mientras la tienda esté en pruebas.
 6. Para cobrar de verdad: Creem revisa la cuenta (1 a 3 días hábiles; pide dominio propio, términos, privacidad, precios visibles y correo de soporte: `mylifetime.cc` ya los tiene). Luego configura la cuenta de pago (*Balance → Payout Account*), apaga *Test Mode* y repite 1, 2 y 3 en modo real.
 
-Seguridad: el tiempo y el Plus se acreditan solo por el webhook con firma verificada (nunca por lo que diga el navegador; al volver del pago la app solo espera a que llegue), y un aviso repetido no acredita dos veces. Lo que se entrega sale del producto pagado, no de los metadatos del checkout. Un reembolso completo (o un contracargo) descuenta lo acreditado y, si era Plus, lo termina; para reembolsar un mes de Plus, cancela también la suscripción en Creem. Se compra solo desde la app: el link público de un producto en Creem (o su tienda pública) no dice para qué reloj es, así que esa compra no acredita nada (sale `pago ord_… sin reloj` en los logs) y hay que reembolsarla.
+Seguridad: el tiempo y el Plus se acreditan solo por el webhook con firma verificada (nunca por lo que diga el navegador; al volver del pago la app solo espera a que llegue), y un aviso repetido no acredita dos veces. Lo que se entrega sale del producto pagado, no de los metadatos del checkout. Un reembolso completo (o un contracargo) descuenta lo acreditado y, si era Plus, lo termina; para reembolsar un mes de Plus, cancela también la suscripción en Creem. Sin su llave, quien tiene Plus igual lo cancela desde el portal de clientes de Creem (`https://creem.io/my-orders/login`, entra con su correo; el link viene en cada recibo), y si escribe con su recibo, en `/admin` → *Recuperar un reloj* se le da una llave nueva para el mismo reloj (confirma antes en Creem que el correo es el del pago). Se compra solo desde la app: el link público de un producto en Creem (o su tienda pública) no dice para qué reloj es, así que esa compra no acredita nada (sale `pago ord_… sin reloj` en los logs) y hay que reembolsarla.
 
 | Variable | Por defecto | Para qué |
 |---|---|---|
@@ -149,6 +149,8 @@ Todas las rutas usan `Authorization: Bearer <llave>`, salvo las marcadas. La app
 | POST | `/api/rebirth` | Renacer (`{ force: true }` si aún estás vivo) |
 | GET | `/api/push/key` | Llave pública VAPID (sin llave) |
 | GET | `/api/admin/stats` | Resumen anti-abuso, ventas y juicios (con `Authorization: Bearer <ADMIN_TOKEN>`) |
+| GET | `/api/admin/clock?ref=` | El reloj de una compra (`tran_…`, `sub_…` o `ck_…` de Creem), para quien perdió su llave (con `ADMIN_TOKEN`) |
+| POST | `/api/admin/rekey` | `{ ref }`: llave nueva para el reloj de esa compra; la vieja deja de servir y el reloj no cambia (con `ADMIN_TOKEN`) |
 | PATCH | `/api/me` | `{ ranked }`: entrar o salir del ranking (necesita nombre) · `{ bio }`: a qué se dedica (lo revisa el Guardián) · `{ country }` · `{ currency: 'COP'\|'USD' }` |
 | GET | `/api/rank?board=semana\|tiempo` | Tabla del ranking (top 100 + tu puesto) |
 | GET | `/api/people/:id` | Perfil público: de dónde sale su tiempo y qué hace (30 días) |

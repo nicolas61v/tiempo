@@ -210,6 +210,7 @@ const EN = {
   'wage.CO': 'Colombia',
   'wage.US': 'the United States',
   'key.welcome': 'This is your key',
+  'key.afterBuy': 'Save your key: what you bought lives on this clock',
   'key.title': 'Your key',
   'key.new': 'Your new key',
   'key.saved': "I've saved it",
@@ -616,6 +617,7 @@ const ES = {
   'wage.CO': 'Colombia',
   'wage.US': 'Estados Unidos',
   'key.welcome': 'Esta es tu llave',
+  'key.afterBuy': 'Guarda tu llave: lo que compraste vive en este reloj',
   'key.title': 'Tu llave',
   'key.new': 'Tu llave nueva',
   'key.saved': 'Ya la guardé',
@@ -978,6 +980,8 @@ export const ES_STATIC = {
   'plus.p5': 'Insignia Plus en el ranking',
   'plus.fair': 'Plus nunca te da tiempo: en el ranking todos juegan con las mismas reglas.',
   'store.gifts': 'Tus regalos',
+  'plus.portal':
+    '¿Perdiste tu llave? Igual puedes cancelar Plus desde el <a href="https://creem.io/my-orders/login" target="_blank" rel="noopener">portal de clientes de Creem</a> con el correo con que pagaste, y escribirnos con tu recibo para recibir una llave nueva para tu reloj.',
   'store.fine':
     'Los pagos los procesa Creem, nuestro comerciante registrado (merchant of record): nunca vemos tu tarjeta. Al comprar aceptas nuestros términos. Lo que compras nunca cuenta en el ranking. Precios en dólares.',
   'a.country': 'Tu país (obligatorio)',
