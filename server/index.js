@@ -246,7 +246,10 @@ async function api(req, res, p, qs) {
     const raw = await readRaw(req, 1_000_000);
     const ev = payments.parseWebhook(raw, req.headers['creem-signature']);
     const r = applyPayment(ev.action);
-    log.info(`creem ${ev.type} ${ev.id} → ${ev.action.type}${r?.duplicate ? ' (repetido)' : ''}${r?.unknown ? ' (sin reloj)' : ''}`);
+    log.info(
+      `creem ${ev.type} ${ev.id} → ${ev.action.type}${r?.duplicate ? ' (repetido)' : ''}${r?.unknown ? ' (sin reloj)' : ''}` +
+        (typeof r?.refunded === 'number' ? ` (${r.refunded} ${r.refunded === 1 ? 'compra deshecha' : 'compras deshechas'})` : ''),
+    );
     return send(res, 200, { received: true });
   }
 
